@@ -1,0 +1,145 @@
+---
+# SPDX-FileCopyrightText: 2026 Damián Búho <damian.buho@proton.me>
+#
+# SPDX-License-Identifier: MIT
+$schema: https://projectfile.org/schema/v1.json
+identity:
+  created: "2026-09-25"
+  name: report-relay
+  namespace: me.dbuho
+  summary:
+    en: OpenTelemetry relay for browser and mail security reports
+    es: Relé de OpenTelemetry para informes de seguridad del navegador y del correo
+    uk: Реле OpenTelemetry для звітів безпеки браузера та пошти
+  title: Report Relay
+  description:
+    en: Report Relay accepts the security reports browsers and mail servers send — Reporting API batches, legacy CSP report-uri bodies, network error logs and SMTP TLS reports — and emits one OpenTelemetry log record per report, so they land in the existing Loki, Tempo and Grafana stack instead of a separate collector per report type.
+    es: Report Relay acepta los informes de seguridad que envían los navegadores y los servidores de correo — lotes de Reporting API, cuerpos heredados de report-uri de CSP, registros de errores de red e informes SMTP TLS — y emite un registro de log de OpenTelemetry por informe, de modo que aterrizan en la pila existente de Loki, Tempo y Grafana en lugar de un recolector distinto por tipo de informe.
+    uk: Report Relay приймає звіти безпеки, які надсилають браузери та поштові сервери — пакети Reporting API, старі тіла report-uri від CSP, журнали помилок мережі та звіти SMTP TLS — і випускає один запис логу OpenTelemetry на звіт, тож вони потрапляють до наявного стеку Loki, Tempo та Grafana, а не до окремого збирача для кожного типу звітів.
+  version: 0.1.0
+includes:
+  - .makefile/b19/ci.yaml
+  - .makefile/b19/images/go.yaml
+  - .makefile/b19/images/ubuntu.yaml
+  - .makefile/container/traits/readme-service.yaml
+  - .makefile/library/languages/go.yaml
+  - https://kiota.ch/damian-buho/metadata/raw/branch/main/forge/codeberg.yaml
+  - https://kiota.ch/damian-buho/metadata/raw/branch/main/forge/github.yaml
+  - https://kiota.ch/damian-buho/metadata/raw/branch/main/include.yaml
+  - https://kiota.ch/damian-buho/metadata/raw/branch/main/registry/dockerhub.yaml
+keywords:
+  - opentelemetry
+  - otlp
+  - csp
+  - reporting-api
+  - tlsrpt
+  - security
+  - loki
+  - go
+  - docker
+kind: SoftwareSourceCode
+license:
+  covers: project
+  spdx: MIT
+links:
+  - label:
+      en: Report Relay on GitHub
+      es: Report Relay en GitHub
+      uk: Report Relay на GitHub
+    priority: 80
+    tags:
+      - public
+      - badges
+      - badges-github
+    type: source-code
+    url: https://github.com/damian-buho/report-relay
+  - label:
+      en: Issues on GitHub
+      es: Incidencias en GitHub
+      uk: Задачі на GitHub
+    priority: 80
+    tags:
+      - support
+    type: bugs
+    url: https://github.com/damian-buho/report-relay/issues
+  - label:
+      en: Report Relay on kiota.ch
+      es: Report Relay en kiota.ch
+      uk: Report Relay на kiota.ch
+    preferred: true
+    priority: 10
+    type: source-code
+    url: https://kiota.ch/damian-buho/report-relay
+  - label:
+      en: Report Relay on Codeberg
+      es: Report Relay en Codeberg
+      uk: Report Relay на Codeberg
+    priority: 90
+    tags:
+      - public
+      - badges
+      - badges-gitea
+    type: source-code
+    url: https://codeberg.org/damian-buho/report-relay
+  - label:
+      en: Issues on Codeberg
+      es: Incidencias en Codeberg
+      uk: Задачі на Codeberg
+    priority: 90
+    tags:
+      - support
+    type: bugs
+    url: https://codeberg.org/damian-buho/report-relay/issues
+  - derived: true
+    label:
+      en: Packages on GHCR
+      es: Paquetes en GHCR
+      uk: Пакети в GHCR
+    type: package-registry
+    url: https://github.com/damian-buho/report-relay/pkgs/container/report-relay
+  - label:
+      en: Packages on Docker Hub
+      es: Paquetes en Docker Hub
+      uk: Пакети в Docker Hub
+    type: package-registry
+    url: https://hub.docker.com/r/damianbuho/report-relay
+org:
+  projectfile:
+    architecture:
+      - amd64
+      - arm64
+    conventions:
+      fragments:
+        parents:
+          - url: ssh://git@kiota.ch/b19/ubuntu.git
+    image:
+      org: damian-buho
+      flatpath: ${name}
+    forge:
+      # The account IS the org, so the GitHub repository is the bare name
+      org: damian-buho
+      flatpath: ${name}
+    # The org is the GHCR account, so the artifact drops the repeat
+    sinks:
+      ghcr:
+        selfref: ghcr.io/damian-buho/${name}:${tag}
+    operating-system:
+      - linux
+    status: experimental
+  report-relay: {}
+repositories:
+  - role: mirror
+    type: git
+    url: git@github.com:damian-buho/report-relay.git
+  - branch: main
+    role: origin
+    type: git
+    url: ssh://git@kiota.ch/damian-buho/report-relay.git
+  - role: mirror
+    type: git
+    url: git@codeberg.org:damian-buho/report-relay.git
+technologies:
+  - go
+requirements:
+  runtime:
+    go: '>= 1.26.0'

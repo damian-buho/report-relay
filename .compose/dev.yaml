@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 Damián Búho <damian.buho@proton.me>
+#
+# SPDX-License-Identifier: MIT
+
+---
+name: ${M6E_COMPOSE_PROJECT_NAME}
+services:
+  damian-buho-report-relay:
+    container_name: ${M6E_CONTAINER_INSTANCE}
+    image: ${M6E_IMAGE_FULLNAME}
+    # Preset: small (1c, 1g) — Go web app, modest working set.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+    labels:
+      com.docker.compose.watch: "true"
+    networks:
+      - dev-network
+      - traefik-network
+    environment:
+      - LANG
+      - TZ
+      - B19_VERBOSITY=debug
+      - REPORT_RELAY_LOG_LEVEL
+      - REPORT_RELAY_HTTP_PORT
+      - REPORT_RELAY_ADMIN_PORT
+      - REPORT_RELAY_ALLOWED_ORIGINS
+      - REPORT_RELAY_KEEP_QUERY
+      - REPORT_RELAY_TRUST_PROXY
+      - REPORT_RELAY_MAX_BODY_BYTES
+      - REPORT_RELAY_RATE_LIMIT_RPS
+      - REPORT_RELAY_RATE_LIMIT_BURST
+      - OTEL_SERVICE_NAME
+      - OTEL_EXPORTER_OTLP_ENDPOINT
+      - OTEL_EXPORTER_OTLP_PROTOCOL
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    tmpfs:
+      - /tmp:size=64m
+networks:
+  dev-network:
+    name: ${M6E_NETWORK}
+    external: true
+  traefik-network:
+    name: traefik-network
+    external: true
