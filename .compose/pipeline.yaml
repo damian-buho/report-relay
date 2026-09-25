@@ -19,6 +19,53 @@ services:
     environment:
       - LANG
       - TZ
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://o9s-alloy:4318
+      - OTEL_EXPORTER_OTLP_INSECURE=true
+      - O9S_LOKI_HOST=o9s-loki
+      - O9S_LOKI_PORT=8080
+      - O9S_LOKI_TENANT_ID=o9s
+    depends_on:
+      o9s-alloy:
+        condition: service_healthy
+
+  # The real collector, not a stub: the point of the pipeline is to prove the
+  # record survives the exact pipeline production uses, label promotion included.
+  o9s-alloy:
+    container_name: ${M6E_CONTAINER_INSTANCE}-alloy
+    image: ${O9S_ALLOY_IMAGE}
+    # Preset: medium (2c, 2g) — telemetry agent, batching under a test load.
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+    networks:
+      - dev-network
+    environment:
+      - LANG
+      - TZ
+      - O9S_LOKI_HTTP_HOST=o9s-loki
+      - O9S_LOKI_HTTP_PORT=8080
+      - O9S_LOKI_HTTP_SCHEME=http
+      - O9S_LOKI_TENANT_ID=o9s
+    depends_on:
+      o9s-loki:
+        condition: service_healthy
+
+  o9s-loki:
+    container_name: ${M6E_CONTAINER_INSTANCE}-loki
+    image: ${O9S_LOKI_IMAGE}
+    # Preset: small (1c, 1g) — in-memory ring, a handful of lines in a test.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+    networks:
+      - dev-network
+    environment:
+      - LANG
+      - TZ
 networks:
   dev-network:
     name: ${M6E_COMPOSE_PROJECT_NAME}-network

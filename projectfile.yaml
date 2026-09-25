@@ -108,6 +108,26 @@ org:
     architecture:
       - amd64
       - arm64
+    images:
+      # The pipeline runs the real collector and store, so the intake is proved
+      # end to end rather than against a stub. Declared here and not in a
+      # reusable fragment: only this project wires them together.
+      O9S_ALLOY_IMAGE:
+        org: o9s
+        name: alloy
+        path: ${org}/${name}
+        flatpath: ${org}-${name}
+        tag: $${M6E_BASE_IMAGE_DEFAULT_VERSION}
+        registry: SOURCE_DOCKER_REGISTRY
+        ref: $${SOURCE_DOCKER_REGISTRY}/${path}:${tag}
+      O9S_LOKI_IMAGE:
+        org: o9s
+        name: loki
+        path: ${org}/${name}
+        flatpath: ${org}-${name}
+        tag: $${M6E_BASE_IMAGE_DEFAULT_VERSION}
+        registry: SOURCE_DOCKER_REGISTRY
+        ref: $${SOURCE_DOCKER_REGISTRY}/${path}:${tag}
     conventions:
       fragments:
         parents:

@@ -129,6 +129,27 @@ func post(t *testing.T, handler http.Handler, mediaType, body string) *httptest.
 	return rec
 }
 
+func TestEmitSetsEventNameAsAnAttributeNotOnlyAField(t *testing.T) {
+	// The collector promotes `event.name` and `event.domain` to Loki labels by
+	// reading ATTRIBUTES. The first-class EventName field alone leaves the
+	// report type out of the label set, and every query filtering on it returns
+	// nothing — so the attribute is load-bearing, not decoration.
+	srv, sink, sinkEmitter := testServer(t, testConfig())
+	body := `[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}}]`
+	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	records := sink.Records(t, sinkEmitter)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	if records[0].EventName() != "deprecation" {
+		t.Errorf("EventName field = %q, want deprecation", records[0].EventName())
+	}
+	assertAttribute(t, records[0], "event.name", "deprecation")
+	assertAttribute(t, records[0], "event.domain", "browser")
+}
+
 func TestLegacyCSPPostBecomesOneRecord(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
 	body := `{"csp-report":{"document-uri":"https://beta.dbuho.me/","violated-directive":"script-src",` +

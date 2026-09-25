@@ -54,7 +54,7 @@ func run() int {
 	}
 
 	readTimeout, writeTimeout, idleTimeout := server.Timeouts()
-	srv := server.New(cfg, log, emitter, func() bool { return true })
+	srv := server.New(cfg, log, emitter, exporterConfigured)
 	intakeSrv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
 		Handler:           srv.IntakeHandler(),
@@ -116,4 +116,13 @@ func serve(srv *http.Server, name string, errs chan<- error) {
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		errs <- fmt.Errorf("%s listener: %w", name, err)
 	}
+}
+
+// exporterConfigured reports whether the OTLP endpoint is named. It is what
+// /readyz answers: a relay with nowhere to export is accepting reports it will
+// drop, and saying so is the difference between a useful probe and a green light
+// over a black hole.
+func exporterConfigured() bool {
+	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
+		os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != ""
 }

@@ -202,6 +202,11 @@ func (e *Emitter) Emit(ctx context.Context, r intake.Report) {
 	record.SetSeverity(severityNumber(r.Severity()))
 	record.SetEventName(r.Type)
 	record.AddAttributes(
+		// event.name is ALSO an attribute, not only the first-class EventName
+		// field: the collector's attributes processor promotes `event.name` to a
+		// label, and it reads ATTRIBUTES. A report type that never became a label
+		// is invisible to every query that filters on it.
+		attribute.String("event.name", r.Type),
 		attribute.String("event.domain", r.Domain),
 		attribute.String("report.type", r.Type),
 		attribute.String("report.source", r.Source),

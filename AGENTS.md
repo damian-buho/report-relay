@@ -35,8 +35,20 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 
 ## Contracts with the fleet
 
-- Every log record carries `event.name`, `event.domain`, `service.name` and
-  `service.namespace`. `o9s/alloy` promotes exactly those four to Loki labels
-  (`otelcol.processor.attributes` in its `config.alloy.j2`), so a record without
-  them arrives unlabelled and no query finds it.
+- Every log record carries `event.name` and `event.domain` as ATTRIBUTES, plus
+  `service.name` and `service.namespace` on the resource. `o9s/alloy` promotes
+  exactly those four to Loki labels (`otelcol.processor.attributes` in its
+  `config.alloy.j2`), and it promotes them by reading attributes — the first-class
+  OTLP `EventName` field of the same name is invisible to it. Setting only the
+  field lands a line whose report type no query can select.
 - The intake answers `204` after validation and enqueue, never after the export.
+- `REPORT_RELAY_*` config, plus the standard `OTEL_EXPORTER_OTLP_*` the SDK reads.
+
+## Test
+
+- The pipeline compose runs the REAL `o9s/alloy` and `o9s/loki` beside the relay
+  (images declared in this projectfile, not in a reusable fragment), and
+  `2100-check-report-relay-intake.sh` posts a report with a unique marker, polls
+  Loki, then re-queries it BY LABEL. A stub collector would not catch a label the
+  fleet’s own pipeline refuses to promote.
+- The Loki query window is epoch NANOSECONDS; a relative `0s` is rejected.
