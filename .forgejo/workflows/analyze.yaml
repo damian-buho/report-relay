@@ -13,6 +13,8 @@ name: analyze
 env:
   M6E_TAG: ${{ vars.BASE_IMAGE_DEFAULT_VERSION || 'latest' }}
   M6E_RUN_SCOPE: ${{ github.run_id }}-${{ github.run_attempt }}
+  O9S_ALLOY_IMAGE: ${{ vars.O9S_ALLOY_IMAGE || format('{0}/o9s/alloy:{1}', vars.SOURCE_DOCKER_REGISTRY || 'kiota.ch', vars.BASE_IMAGE_DEFAULT_VERSION || 'latest') }}
+  O9S_LOKI_IMAGE: ${{ vars.O9S_LOKI_IMAGE || format('{0}/o9s/loki:{1}', vars.SOURCE_DOCKER_REGISTRY || 'kiota.ch', vars.BASE_IMAGE_DEFAULT_VERSION || 'latest') }}
 jobs:
   analyze:
     runs-on: docker

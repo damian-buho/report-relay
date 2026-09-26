@@ -128,6 +128,10 @@ org:
         tag: $${M6E_BASE_IMAGE_DEFAULT_VERSION}
         registry: SOURCE_DOCKER_REGISTRY
         ref: $${SOURCE_DOCKER_REGISTRY}/${path}:${tag}
+    ci:
+      env:
+        O9S_ALLOY_IMAGE: ""
+        O9S_LOKI_IMAGE: ""
     conventions:
       fragments:
         parents:
