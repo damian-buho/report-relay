@@ -8,6 +8,10 @@ services:
   damian-buho-report-relay:
     container_name: ${M6E_CONTAINER_INSTANCE}
     image: ${M6E_IMAGE_FULLNAME}
+    # The relay writes nothing to disk, so the root filesystem is read-only.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
     # Preset: small (1c, 1g) — Go web app, modest working set. Bounded so it can't starve the shared host.
     deploy:
       resources:

@@ -12,8 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -52,7 +54,15 @@ type Emitter struct {
 	accepted   metric.Int64Counter
 	dropped    metric.Int64Counter
 	exportFail metric.Int64Counter
+	queueSize  int
+	queued     atomic.Int64
+	failures   atomic.Uint64
 }
+
+// exportFailThreshold is the consecutive export failures after which the
+// service stops calling itself ready. One failure is a blip; three is a dead
+// collector, and /readyz should say so.
+const exportFailThreshold = 3
 
 // New builds the log and metric pipelines from the standard OTEL_* environment
 // plus the operator's own REPORT_RELAY_* limits.
@@ -83,25 +93,62 @@ func NewWithExporters(cfg config.Config, logExp sdklog.Exporter, reader sdkmetri
 	if err != nil {
 		return nil, fmt.Errorf("resource: %w", err)
 	}
-	logs := sdklog.NewLoggerProvider(
+	queueSize := cfg.QueueSize
+	if queueSize < 1 {
+		queueSize = 1
+	}
+	em := &Emitter{
+		metrics: sdkmetric.NewMeterProvider(
+			sdkmetric.WithResource(res),
+			sdkmetric.WithReader(reader),
+		),
+		queueSize: queueSize,
+	}
+	if err := em.registerCounters(); err != nil {
+		return nil, err
+	}
+	em.logs = sdklog.NewLoggerProvider(
 		sdklog.WithResource(res),
 		sdklog.WithProcessor(sdklog.NewBatchProcessor(
-			logExp,
-			sdklog.WithMaxQueueSize(cfg.QueueSize),
+			&countingExporter{inner: logExp, em: em},
+			sdklog.WithMaxQueueSize(queueSize),
 			sdklog.WithExportInterval(cfg.BatchTimeout),
 			sdklog.WithExportTimeout(cfg.ExportTimeout),
 		)),
 	)
-	metrics := sdkmetric.NewMeterProvider(
-		sdkmetric.WithResource(res),
-		sdkmetric.WithReader(reader),
-	)
-	em := &Emitter{logger: logs.Logger("report-relay"), logs: logs, metrics: metrics}
-	if err := em.registerCounters(); err != nil {
-		return nil, err
-	}
+	em.logger = em.logs.Logger("report-relay")
 	quietSDKErrors()
 	return em, nil
+}
+
+// countingExporter wraps the log exporter so export failures are counted and
+// logged instead of vanishing into the SDK. The batch processor drops a failed
+// batch after the call returns, so each failure also releases its queue slots.
+type countingExporter struct {
+	inner sdklog.Exporter
+	em    *Emitter
+}
+
+// Export forwards the batch and records the outcome against the emitter.
+func (c *countingExporter) Export(ctx context.Context, batch []sdklog.Record) error {
+	err := c.inner.Export(ctx, batch)
+	c.em.queued.Add(-int64(len(batch)))
+	if err != nil {
+		c.em.CountExportFailure(ctx, err)
+		return err
+	}
+	c.em.failures.Store(0)
+	return nil
+}
+
+// Shutdown forwards the shutdown to the wrapped exporter.
+func (c *countingExporter) Shutdown(ctx context.Context) error {
+	return c.inner.Shutdown(ctx)
+}
+
+// ForceFlush forwards the flush to the wrapped exporter.
+func (c *countingExporter) ForceFlush(ctx context.Context) error {
+	return c.inner.ForceFlush(ctx)
 }
 
 // quietSDKErrors routes the SDK's self-diagnostics into slog at debug level.
@@ -164,7 +211,7 @@ func (e *Emitter) registerCounters() error {
 // CountReceived records a report a decoder produced.
 func (e *Emitter) CountReceived(ctx context.Context, reportType, domain string) {
 	e.received.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("report_type", reportType),
+		attribute.String("report_type", intake.SanitizeType(reportType)),
 		attribute.String("domain", domain),
 	))
 }
@@ -172,7 +219,7 @@ func (e *Emitter) CountReceived(ctx context.Context, reportType, domain string) 
 // CountAccepted records a report queued for export.
 func (e *Emitter) CountAccepted(ctx context.Context, reportType, domain string) {
 	e.accepted.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("report_type", reportType),
+		attribute.String("report_type", intake.SanitizeType(reportType)),
 		attribute.String("domain", domain),
 	))
 }
@@ -186,14 +233,37 @@ func (e *Emitter) CountDropped(ctx context.Context, reason, reportType string) {
 }
 
 // CountExportFailure records one export batch that failed after every retry.
+// It also logs the failure where an operator will see it: the SDK's own error
+// handler is demoted to debug, so without this line a dead collector is silent.
 func (e *Emitter) CountExportFailure(ctx context.Context, err error) {
-	e.exportFail.Add(ctx, 1, metric.WithAttributes(attribute.String("error", errClass(err))))
+	class := errClass(err)
+	e.exportFail.Add(ctx, 1, metric.WithAttributes(attribute.String("error", class)))
+	e.failures.Add(1)
+	slog.Warn("otlp export failed", "error_class", class, "error", err)
 }
 
-// Emit sends one report as one log record. The record carries event.name and
-// event.domain because the fleet's Alloy pipeline promotes exactly those to
-// Loki labels; without them the line arrives unlabelled and no query finds it.
-func (e *Emitter) Emit(ctx context.Context, r intake.Report) {
+// ExportHealthy reports whether recent exports succeeded. After a run of
+// consecutive failures the collector is presumed dead and /readyz says so.
+func (e *Emitter) ExportHealthy() bool {
+	return e.failures.Load() < exportFailThreshold
+}
+
+// Emit queues one report as one log record and reports whether it was queued.
+// The SDK drops the oldest record once its own queue is full, silently losing
+// a report the intake already answered 204 for. This gate drops first instead:
+// while the estimated backlog is at capacity the report is counted queue-full
+// and never enqueued, so the drop has a metric and the SDK queue never fills.
+func (e *Emitter) Emit(ctx context.Context, r intake.Report) bool {
+	r.Type = intake.SanitizeType(r.Type)
+	if e.queued.Load() >= int64(e.queueSize) {
+		e.dropped.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("reason", ReasonQueueFull),
+			attribute.String("report_type", r.Type),
+		))
+		slog.Warn("queue full, report dropped", "report_type", r.Type, "queue_size", e.queueSize)
+		return false
+	}
+	e.queued.Add(1)
 	now := time.Now()
 	var record log.Record
 	record.SetTimestamp(now)
@@ -224,22 +294,23 @@ func (e *Emitter) Emit(ctx context.Context, r intake.Report) {
 		record.AddAttributes(attribute.String("report."+key, stringify(val)))
 	}
 	e.logger.Emit(ctx, record)
+	return true
 }
 
+// hostOf returns the host of a URL for the url_host attribute. Parsing is
+// delegated to net/url, which already knows about IPv6 brackets, ports,
+// userinfo and case: the hand-rolled version lost IPv6 tail segments.
 func hostOf(rawURL string) string {
-	if idx := strings.Index(rawURL, "://"); idx >= 0 {
-		rawURL = rawURL[idx+3:]
+	candidate := rawURL
+	if !strings.Contains(candidate, "://") {
+		candidate = "http://" + candidate
 	}
-	if idx := strings.IndexAny(rawURL, "/?#"); idx >= 0 {
-		rawURL = rawURL[:idx]
+	u, err := url.Parse(candidate)
+	if err != nil {
+		return ""
 	}
-	if idx := strings.LastIndex(rawURL, "@"); idx >= 0 {
-		rawURL = rawURL[idx+1:]
-	}
-	if idx := strings.LastIndex(rawURL, ":"); idx >= 0 && !strings.Contains(rawURL[idx:], "]") {
-		rawURL = rawURL[:idx]
-	}
-	return rawURL
+	host := strings.ToLower(u.Hostname())
+	return strings.TrimSuffix(host, ".")
 }
 
 func severityNumber(text string) log.Severity {

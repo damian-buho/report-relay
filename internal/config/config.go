@@ -8,6 +8,7 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -102,6 +103,56 @@ func (c Config) Log(log *slog.Logger) {
 		"csp", c.CSPOn,
 		"tlsrpt", c.TLSRPTOn,
 	)
+}
+
+// Validate rejects values the service cannot run on. A negative burst bricks
+// the intake and a negative rate disables limiting, so both refuse to start
+// rather than fail open or closed at runtime.
+func (c Config) Validate() error {
+	var errs []string
+	if c.RateLimitBurst < 1 {
+		errs = append(errs, fmt.Sprintf("rate limit burst %d: want >= 1", c.RateLimitBurst))
+	}
+	if c.RateLimitRPS <= 0 {
+		errs = append(errs, fmt.Sprintf("rate limit rps %v: want > 0", c.RateLimitRPS))
+	}
+	if err := checkPort("http", c.HTTPPort); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if err := checkPort("admin", c.AdminPort); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if c.MaxBodyBytes < 1 {
+		errs = append(errs, fmt.Sprintf("max body bytes %d: want >= 1", c.MaxBodyBytes))
+	}
+	if c.MaxJSONDepth < 1 {
+		errs = append(errs, fmt.Sprintf("max json depth %d: want >= 1", c.MaxJSONDepth))
+	}
+	if c.MaxArrayItems < 1 {
+		errs = append(errs, fmt.Sprintf("max array items %d: want >= 1", c.MaxArrayItems))
+	}
+	if c.QueueSize < 1 {
+		errs = append(errs, fmt.Sprintf("queue size %d: want >= 1", c.QueueSize))
+	}
+	for name, d := range map[string]time.Duration{"export timeout": c.ExportTimeout, "shutdown timeout": c.ShutdownTimeout, "batch timeout": c.BatchTimeout} {
+		if d <= 0 {
+			errs = append(errs, fmt.Sprintf("%s %v: want > 0", name, d))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid configuration: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// checkPort requires a numeric unprivileged port. The image runs as non-root,
+// so a privileged port would fail at bind time with a confusing error.
+func checkPort(name, port string) error {
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1025 || n > 65535 {
+		return fmt.Errorf("%s port %q: want a number in 1025-65535", name, port)
+	}
+	return nil
 }
 
 func envOr(key, fallback string) string {

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,7 @@ func TestLimiterEvictsIdleClients(t *testing.T) {
 		limiter.Allow("198.51.100.7")
 	}
 	time.Sleep(5 * time.Millisecond)
+	limiter.ops = evictEvery - 1
 	if !limiter.Allow("198.51.100.7") {
 		t.Fatal("an idle client was refused after its bucket refilled")
 	}
@@ -150,5 +152,36 @@ func TestClientIPUsesTheFirstForwardedHop(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8, 9.10.11.12")
 	if got := ClientIP(req, true); got != "1.2.3.4" {
 		t.Errorf("ClientIP = %q, want 1.2.3.4", got)
+	}
+}
+
+func TestLimiterBoundsTheTable(t *testing.T) {
+	limiter := NewLimiter(1000, 1000)
+	for i := range maxClients + 500 {
+		limiter.Allow("10.1." + strconv.Itoa(i/256) + "." + strconv.Itoa(i%256))
+	}
+	if got := limiter.Clients(); got > maxClients {
+		t.Errorf("clients = %d, want at most %d", got, maxClients)
+	}
+}
+
+func TestLimiterClampsNonsense(t *testing.T) {
+	limiter := NewLimiter(-5, -2)
+	if limiter.burst != 1 {
+		t.Errorf("burst = %d, want the clamp to 1", limiter.burst)
+	}
+	if !limiter.Allow("203.0.113.9") {
+		t.Fatal("a clamped limiter refused the burst token")
+	}
+	if limiter.Allow("203.0.113.9") {
+		t.Fatal("a clamped limiter admitted past its burst: negative rates must fail closed")
+	}
+}
+
+func TestIsGzipMatchesAmongCodings(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("Content-Encoding", "gzip, br")
+	if !isGzip(req) {
+		t.Error("a body coded gzip among others was not gunzipped")
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"kiota.ch/damian-buho/report-relay/internal/config"
 	"kiota.ch/damian-buho/report-relay/internal/intake"
@@ -407,7 +408,8 @@ func TestAFullQueueDropsWithoutBlockingIntake(t *testing.T) {
 	cfg.QueueSize = 1
 	cfg.BatchTimeout = time.Hour
 	sink := &blockingRecorder{}
-	em, err := telemetry.NewWithExporters(cfg, sink, sdkmetric.NewManualReader())
+	reader := sdkmetric.NewManualReader()
+	em, err := telemetry.NewWithExporters(cfg, sink, reader)
 	if err != nil {
 		t.Fatalf("NewWithExporters: %v", err)
 	}
@@ -421,6 +423,9 @@ func TestAFullQueueDropsWithoutBlockingIntake(t *testing.T) {
 		if rec := post(t, handler, intake.MediaReportingAPI, oneReport); rec.Code != http.StatusNoContent {
 			t.Fatalf("request %d answered %d, want 204 while the queue is full", i, rec.Code)
 		}
+	}
+	if got := droppedByReason(t, reader, telemetry.ReasonQueueFull); got == 0 {
+		t.Error("no queue-full drop was counted while the exporter was blocked")
 	}
 }
 
@@ -448,4 +453,109 @@ func TestExportFailureNeverBlocksIntake(t *testing.T) {
 	if sink.calls.Load() == 0 {
 		t.Error("the exporter was never called, so the failure path was not exercised")
 	}
+}
+
+func TestUnsupportedContentTypeCostsARateToken(t *testing.T) {
+	cfg := testConfig()
+	cfg.RateLimitRPS = 1
+	cfg.RateLimitBurst = 1
+	srv, _, _ := testServer(t, cfg)
+	handler := srv.IntakeHandler()
+	if rec := post(t, handler, "text/plain", "not a report"); rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("first status = %d, want 415", rec.Code)
+	}
+	if rec := post(t, handler, "text/plain", "not a report"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("second status = %d, want 429: garbage must not bypass the limiter", rec.Code)
+	}
+}
+
+func TestRateLimitAnswerCarriesRetryAfter(t *testing.T) {
+	cfg := testConfig()
+	cfg.RateLimitRPS = 1
+	cfg.RateLimitBurst = 1
+	srv, _, _ := testServer(t, cfg)
+	handler := srv.IntakeHandler()
+	if rec := post(t, handler, intake.MediaReportingAPI, oneReport); rec.Code != http.StatusNoContent {
+		t.Fatalf("first status = %d, want 204", rec.Code)
+	}
+	rec := post(t, handler, intake.MediaReportingAPI, oneReport)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("second status = %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("a 429 without Retry-After leaves the client guessing")
+	}
+}
+
+func TestOversizeBatchIsRefusedAsTooLarge(t *testing.T) {
+	cfg := testConfig()
+	cfg.MaxArrayItems = 1
+	srv, _, _ := testServer(t, cfg)
+	body := `[
+	  {"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}},
+	  {"type":"deprecation","age":2,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}}
+	]`
+	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413 for a batch past the array cap", rec.Code)
+	}
+}
+
+func TestPreflightAdvertisesAllowedHeaders(t *testing.T) {
+	srv, _, _ := testServer(t, testConfig())
+	req := httptest.NewRequest(http.MethodOptions, "/", nil)
+	req.Header.Set("Origin", "https://beta.dbuho.me")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	rec := httptest.NewRecorder()
+	srv.IntakeHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); got == "" {
+		t.Error("preflight without Allow-Headers fails a real browser POST")
+	}
+}
+
+func TestDisallowedOriginGetsNoCORSHeader(t *testing.T) {
+	cfg := testConfig()
+	cfg.AllowedOrigins = []string{"https://allowed.example"}
+	srv, _, _ := testServer(t, cfg)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(oneReport))
+	req.Header.Set("Content-Type", intake.MediaReportingAPI)
+	req.Header.Set("Origin", "https://denied.example")
+	denied := httptest.NewRecorder()
+	srv.IntakeHandler().ServeHTTP(denied, req)
+	if denied.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204: the allow-list gates the header, not the report", denied.Code)
+	}
+	if got := denied.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Allow-Origin = %q for a denied origin, want it absent", got)
+	}
+}
+
+// droppedByReason sums the dropped counter for one reason from a manual reader.
+func droppedByReason(t *testing.T, reader *sdkmetric.ManualReader, reason string) int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	var total int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "report.relay.dropped" {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				continue
+			}
+			for _, dp := range sum.DataPoints {
+				if v, ok := dp.Attributes.Value(attribute.Key("reason")); ok && v.AsString() == reason {
+					total += dp.Value
+				}
+			}
+		}
+	}
+	return total
 }

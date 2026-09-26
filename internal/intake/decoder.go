@@ -6,6 +6,7 @@ package intake
 
 import (
 	"fmt"
+	"strings"
 
 	"kiota.ch/damian-buho/report-relay/internal/guard"
 )
@@ -52,6 +53,9 @@ func decodeReportingAPI(body []byte, limits guard.Limits, keepQuery bool) ([]Rep
 	if err := guard.Decode(body, &envelopes, limits); err != nil {
 		return nil, err
 	}
+	if len(envelopes) > limits.MaxArrayItems {
+		return nil, fmt.Errorf("batch of %d exceeds %d: %w", len(envelopes), limits.MaxArrayItems, guard.ErrArrayTooLong)
+	}
 	reports := make([]Report, 0, len(envelopes))
 	for _, env := range envelopes {
 		report, err := reportingAPIReport(env, keepQuery)
@@ -61,6 +65,19 @@ func decodeReportingAPI(body []byte, limits guard.Limits, keepQuery bool) ([]Rep
 		reports = append(reports, report)
 	}
 	return reports, nil
+}
+
+// keepRawType stashes the sender's own type string in the body when the label
+// had to bucket it as unknown. The raw value stays queryable in the log line,
+// but it never becomes a label, so it cannot mint streams or series.
+func keepRawType(report *Report, raw string) {
+	if report.Type != typeUnknown || strings.EqualFold(raw, typeUnknown) {
+		return
+	}
+	if len(raw) > maxTypeLen*4 {
+		raw = raw[:maxTypeLen*4]
+	}
+	report.Body["reported-type"] = raw
 }
 
 func reportingAPIReport(env reportEnvelope, keepQuery bool) (Report, error) {
@@ -80,6 +97,7 @@ func reportingAPIReport(env reportEnvelope, keepQuery bool) (Report, error) {
 			return Report{}, err
 		}
 	}
+	keepRawType(&report, env.Type)
 	if hook, ok := bodyHooks[report.Type]; ok {
 		if err := hook(report.Body); err != nil {
 			return Report{}, fmt.Errorf("%w: type %q: %w", ErrInvalidReport, report.Type, err)
@@ -167,9 +185,10 @@ func decodeCSPReport(body []byte, limits guard.Limits, keepQuery bool) ([]Report
 var legacyCSPKeys = map[string]string{
 	"document-uri":        fieldDocumentURL,
 	"referrer":            fieldReferrer,
-	"violated-directive":  fieldEffectiveDirectve,
-	"effective-directive": fieldEffectiveDirectve,
+	"violated-directive":  fieldEffectiveDirective,
+	"effective-directive": fieldEffectiveDirective,
 	"blocked-uri":         fieldBlockedURL,
+	"source-file":         fieldSourceFile,
 	"original-policy":     "originalPolicy",
 	"disposition":         "disposition",
 	"status-code":         "statusCode",
@@ -227,8 +246,9 @@ func decodeTLSRPT(body []byte, limits guard.Limits, _ bool) ([]Report, error) {
 		return nil, fmt.Errorf("%w: organization-name is empty", ErrNoReports)
 	}
 	base := func(resultType string) Report {
-		return Report{
-			Type:   resultType,
+		sanitized := SanitizeType(resultType)
+		report := Report{
+			Type:   sanitized,
 			Domain: DomainMail,
 			Source: SourceTLSRPT,
 			URL:    env.OrganizationName,
@@ -238,8 +258,19 @@ func decodeTLSRPT(body []byte, limits guard.Limits, _ bool) ([]Report, error) {
 				"report-id":         env.ReportID,
 			},
 		}
+		if sanitized == typeUnknown && !strings.EqualFold(resultType, typeUnknown) {
+			raw := resultType
+			if len(raw) > maxTypeLen*4 {
+				raw = raw[:maxTypeLen*4]
+			}
+			report.Body["reported-type"] = raw
+		}
+		return report
 	}
 	if len(env.FailureDetails) > 0 {
+		if len(env.FailureDetails) > limits.MaxArrayItems {
+			return nil, fmt.Errorf("failure-details of %d exceeds %d: %w", len(env.FailureDetails), limits.MaxArrayItems, guard.ErrArrayTooLong)
+		}
 		reports := make([]Report, 0, len(env.FailureDetails))
 		for _, detail := range env.FailureDetails {
 			report := base(detail.ResultType)

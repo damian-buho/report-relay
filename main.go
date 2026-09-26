@@ -41,6 +41,10 @@ func run() int {
 	cfg := config.Load()
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	slog.SetDefault(log)
+	if err := cfg.Validate(); err != nil {
+		log.Error("invalid configuration", "error", err)
+		return 1
+	}
 
 	// SIGINT and SIGTERM cancel this context, so the HTTP servers and the
 	// telemetry pipelines unwind together instead of being killed mid-request.
@@ -54,11 +58,12 @@ func run() int {
 	}
 
 	readTimeout, writeTimeout, idleTimeout := server.Timeouts()
-	srv := server.New(cfg, log, emitter, exporterConfigured)
+	srv := server.New(cfg, log, emitter, func() bool { return exporterConfigured() && emitter.ExportHealthy() })
 	intakeSrv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
 		Handler:           srv.IntakeHandler(),
 		ReadHeaderTimeout: readTimeout,
+		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 	}
@@ -66,6 +71,7 @@ func run() int {
 		Addr:              ":" + cfg.AdminPort,
 		Handler:           srv.AdminHandler(),
 		ReadHeaderTimeout: readTimeout,
+		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 	}
@@ -85,6 +91,14 @@ func run() int {
 	select {
 	case <-ctx.Done():
 		log.Info("shutdown signal received, draining", "deadline", cfg.ShutdownTimeout)
+		select {
+		case err := <-errs:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("listener failed", "error", err)
+				exitCode = 1
+			}
+		default:
+		}
 	case err := <-errs:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("listener failed", "error", err)
@@ -92,8 +106,8 @@ func run() int {
 		}
 	}
 
-	// The drain deadline covers both listeners and the export queue, so a slow
-	// collector delays shutdown by a bounded amount and no more.
+	// The drain deadline covers both listeners, so a slow connection delays
+	// shutdown by a bounded amount and no more.
 	drainCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 	if err := intakeSrv.Shutdown(drainCtx); err != nil {
@@ -104,7 +118,11 @@ func run() int {
 		log.Error("admin shutdown incomplete", "error", err)
 		exitCode = 1
 	}
-	if err := emitter.Shutdown(drainCtx); err != nil {
+	// The emitter drains on its own deadline: a slow listener drain must not
+	// starve the export queue of its own bounded wait.
+	emitCtx, emitCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer emitCancel()
+	if err := emitter.Shutdown(emitCtx); err != nil {
 		log.Error("telemetry drain incomplete", "error", err)
 		exitCode = 1
 	}
@@ -118,10 +136,11 @@ func serve(srv *http.Server, name string, errs chan<- error) {
 	}
 }
 
-// exporterConfigured reports whether the OTLP endpoint is named. It is what
-// /readyz answers: a relay with nowhere to export is accepting reports it will
-// drop, and saying so is the difference between a useful probe and a green light
-// over a black hole.
+// exporterConfigured reports whether the OTLP endpoint is named. It is half of
+// what /readyz answers, the other half being the emitter's own export health:
+// a relay with nowhere to export, or one whose exports keep failing, is
+// accepting reports it will drop, and saying so is the difference between a
+// useful probe and a green light over a black hole.
 func exporterConfigured() bool {
 	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
 		os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != ""

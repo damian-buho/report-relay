@@ -67,7 +67,7 @@ func RegisterBodyHook(reportType string, hook bodyHook) {
 
 // requiredBody lists the body keys a report type must carry to be accepted.
 var requiredBody = map[string][]string{
-	typeCSPViolation:  {fieldDocumentURL, fieldEffectiveDirectve, fieldBlockedURL},
+	typeCSPViolation:  {fieldDocumentURL, fieldEffectiveDirective, fieldBlockedURL},
 	typeCOEP:          {fieldDocumentURL},
 	typeCOEPViolation: {fieldDocumentURL},
 	typeNetworkError:  {fieldDocumentURL, "phase"},
@@ -89,6 +89,13 @@ func init() {
 	}
 }
 
+// typeUnknown is the bucket for a type that fails the label charset. The raw
+// value rides in the log body, never in a label, so cardinality stays bounded.
+const typeUnknown = "unknown"
+
+// maxTypeLen bounds a type label. Past it the type buckets as unknown.
+const maxTypeLen = 64
+
 // normalizeType folds the type strings the Reporting API has accumulated onto
 // one vocabulary, so a query never has to know which spelling a browser used.
 func normalizeType(reportType string) string {
@@ -99,7 +106,35 @@ func normalizeType(reportType string) string {
 		return typeCOEP
 	case typeNetworkError, "nel", "networkerror":
 		return typeNetworkError
+	case typeDeprecation:
+		return typeDeprecation
+	case typePermissions:
+		return typePermissions
 	default:
-		return reportType
+		return SanitizeType(reportType)
 	}
+}
+
+// SanitizeType bounds an open-vocabulary type for label use. Known spellings
+// are folded by normalizeType first; anything else must match a lowercase
+// charset after folding, or it buckets as unknown. The intake is an open list,
+// so an unseen-but-well-formed type still arrives under its own name.
+func SanitizeType(reportType string) string {
+	lowered := strings.ToLower(reportType)
+	if len(lowered) == 0 || len(lowered) > maxTypeLen || !validTypeChars(lowered) {
+		return typeUnknown
+	}
+	return lowered
+}
+
+// validTypeChars reports whether every byte of s is a label-safe character.
+func validTypeChars(s string) bool {
+	for i := range len(s) {
+		c := s[i]
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }

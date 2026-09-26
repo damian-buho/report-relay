@@ -73,10 +73,11 @@ const (
 	typeDeprecation   = "deprecation"
 	typePermissions   = "permissions-policy-violation"
 
-	fieldDocumentURL       = "documentURL"
-	fieldBlockedURL        = "blockedURL"
-	fieldEffectiveDirectve = "effectiveDirective"
-	fieldReferrer          = "referrer"
+	fieldDocumentURL        = "documentURL"
+	fieldBlockedURL         = "blockedURL"
+	fieldEffectiveDirective = "effectiveDirective"
+	fieldSourceFile         = "sourceFile"
+	fieldReferrer           = "referrer"
 )
 
 // urlFields are the report body keys whose value is a URL. They are redacted
@@ -87,34 +88,60 @@ var urlFields = map[string]bool{
 	fieldReferrer:    true,
 	"document-uri":   true,
 	"blocked-uri":    true,
+	"source-file":    true,
+	fieldSourceFile:  true,
 	"effectiveURI":   true,
 	"sourceURL":      true,
 	"sample":         true,
 	fieldDocumentURL: true,
 }
 
-// redactURL drops the query string and the fragment of a URL, keeping the part
-// that identifies the resource.
+// redactURL drops the query string, the fragment and any userinfo of a URL,
+// keeping the part that identifies the resource.
 func redactURL(value string) string {
-	idx := strings.IndexAny(value, "?#")
-	if idx < 0 {
-		return value
-	}
 	u, err := url.Parse(value)
 	if err != nil {
-		return value[:idx]
+		if idx := strings.IndexAny(value, "?#"); idx >= 0 {
+			return value[:idx]
+		}
+		return value
 	}
+	u.User = nil
 	u.RawQuery = ""
+	u.ForceQuery = false
 	u.Fragment = ""
 	u.RawFragment = ""
 	return u.String()
 }
 
 // redactBody walks a decoded report body and redacts every URL-shaped field.
+// The walk recurses into nested objects and arrays, bounded by maxRedactDepth,
+// because a token can hide below the top level.
 func redactBody(body map[string]any, keepQuery bool) {
-	for key, val := range body {
-		if s, ok := val.(string); ok && urlFields[key] && !keepQuery {
-			body[key] = redactURL(s)
+	redactValue(body, keepQuery, 0)
+}
+
+// maxRedactDepth bounds the redaction walk. Bodies already passed the JSON
+// depth guard, so this is strictly smaller and never the limiting factor.
+const maxRedactDepth = 16
+
+// redactValue redacts one level of a decoded body, descending while depth allows.
+func redactValue(val any, keepQuery bool, depth int) {
+	switch node := val.(type) {
+	case map[string]any:
+		for key, child := range node {
+			if s, ok := child.(string); ok && urlFields[key] && !keepQuery {
+				node[key] = redactURL(s)
+			} else if depth < maxRedactDepth {
+				redactValue(child, keepQuery, depth+1)
+			}
+		}
+	case []any:
+		if depth >= maxRedactDepth {
+			return
+		}
+		for _, child := range node {
+			redactValue(child, keepQuery, depth+1)
 		}
 	}
 }

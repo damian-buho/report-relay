@@ -39,16 +39,24 @@ type Limits struct {
 	MaxArrayItems int
 }
 
-// Limiter is a per-client-IP token bucket. Clients are evicted once they have
-// been idle long enough for the bucket to be full again, so a public intake
-// does not accumulate one entry per address that ever posted.
+// Limiter is a per-client-IP token bucket. The table is bounded and eviction
+// is amortized, so rotating source addresses costs memory, not latency.
 type Limiter struct {
 	mu      sync.Mutex
 	buckets map[string]*client
 	rate    rate.Limit
 	burst   int
 	ttl     time.Duration
+	ops     uint64
 }
+
+// maxClients bounds the bucket table. Past it an insert drops one arbitrary
+// entry, so a scanner trades its own bucket for another's, never growth.
+const maxClients = 10000
+
+// evictEvery amortizes the idle scan over this many requests. One scan is
+// O(n) under the lock; one scan per 64 requests is not.
+const evictEvery = 64
 
 type client struct {
 	lim    *rate.Limiter
@@ -56,8 +64,15 @@ type client struct {
 }
 
 // NewLimiter returns a limiter allowing rps requests per second per client,
-// with burst as the bucket depth.
+// with burst as the bucket depth. Nonsense in, safety out: a zero burst would
+// refuse the world and a negative rate would admit it, so both are clamped.
 func NewLimiter(rps float64, burst int) *Limiter {
+	if burst < 1 {
+		burst = 1
+	}
+	if rps < 0 {
+		rps = 0
+	}
 	return &Limiter{
 		buckets: make(map[string]*client),
 		rate:    rate.Limit(rps),
@@ -71,9 +86,15 @@ func (l *Limiter) Allow(ip string) bool {
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.evict(now)
+	l.ops++
+	if l.ops%evictEvery == 0 {
+		l.evict(now)
+	}
 	c, ok := l.buckets[ip]
 	if !ok {
+		if len(l.buckets) >= maxClients {
+			l.evictOne()
+		}
 		c = &client{lim: rate.NewLimiter(l.rate, l.burst)}
 		l.buckets[ip] = c
 	}
@@ -86,6 +107,15 @@ func (l *Limiter) Clients() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return len(l.buckets)
+}
+
+// evictOne drops one arbitrary entry to make room. Map iteration order is
+// random, so the victim is random, and one delete is O(1) under the lock.
+func (l *Limiter) evictOne() {
+	for ip := range l.buckets {
+		delete(l.buckets, ip)
+		return
+	}
 }
 
 // evict drops a client whose bucket has refilled, so its rate is spent again
@@ -154,8 +184,12 @@ func readGzipBody(r *http.Request, maxBytes int64) ([]byte, error) {
 }
 
 func isGzip(r *http.Request) bool {
-	enc := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding")))
-	return enc == "gzip" || enc == "x-gzip"
+	for token := range strings.SplitSeq(strings.ToLower(r.Header.Get("Content-Encoding")), ",") {
+		if t := strings.TrimSpace(token); t == "gzip" || t == "x-gzip" {
+			return true
+		}
+	}
+	return false
 }
 
 // Decode unmarshals a body into dst and then enforces the depth and array caps.

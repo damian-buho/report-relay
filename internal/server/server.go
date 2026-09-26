@@ -63,12 +63,27 @@ func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready 
 func (s *Server) IntakeHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("OPTIONS /", s.handlePreflight)
-	mux.HandleFunc("POST /", s.handleIntake)
+	mux.HandleFunc("POST /", s.recover(s.handleIntake))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.writeCORS(w, r)
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 	return mux
+}
+
+// recover turns a panicking decode into a 500 instead of a dead process. The
+// intake parses attacker bytes on every request; insurance is cheap here.
+func (s *Server) recover(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				s.emitter.CountDropped(r.Context(), telemetry.ReasonInvalid, "")
+				s.log.Error("intake panic recovered", "panic", rec)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		}()
+		next(w, r)
+	}
 }
 
 // AdminHandler returns the admin mux: process health and exporter readiness.
@@ -101,13 +116,18 @@ func (s *Server) handlePreflight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	if requested := r.Header.Get("Access-Control-Request-Headers"); requested != "" {
+		w.Header().Set("Access-Control-Allow-Headers", requested)
+	} else {
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	}
 	w.Header().Set("Access-Control-Max-Age", "600")
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) writeCORS(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
-	if origin == "" {
+	if origin == "" || !s.originAllowed(origin) {
 		return
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -122,15 +142,25 @@ func (s *Server) originAllowed(origin string) bool {
 }
 
 // handleIntake routes on the media type and lets each format's handler apply
-// the guards it needs.
+// the guards it needs. The rate limit runs before the route lookup, so garbage
+// content types cost a token like everything else instead of bypassing it.
 func (s *Server) handleIntake(w http.ResponseWriter, r *http.Request) {
 	s.writeCORS(w, r)
+	clientIP := guard.ClientIP(r, s.cfg.TrustProxy)
+	if !s.limiter.Allow(clientIP) {
+		s.emitter.CountDropped(r.Context(), telemetry.ReasonRateLimited, "")
+		s.log.Warn("rate limited", "client_ip", clientIP,
+			"rate_limit_rps", s.cfg.RateLimitRPS, "burst", s.cfg.RateLimitBurst)
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
 	mediaType := intake.MediaType(r.Header.Get("Content-Type"))
 	handler, ok := s.handlers[mediaType]
 	if !ok {
 		s.emitter.CountDropped(r.Context(), telemetry.ReasonUnsupported, "")
 		s.log.Warn("unsupported content type", "content_type", mediaType,
-			"client_ip", guard.ClientIP(r, s.cfg.TrustProxy))
+			"client_ip", clientIP)
 		w.WriteHeader(http.StatusUnsupportedMediaType)
 		return
 	}
@@ -146,17 +176,11 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 		if !enabled {
 			s.emitter.CountDropped(r.Context(), telemetry.ReasonDisabled, "")
 			s.log.Warn("intake disabled", "source", source, "media_type", mediaType)
+			w.Header().Set("Retry-After", "30")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 		clientIP := guard.ClientIP(r, s.cfg.TrustProxy)
-		if !s.limiter.Allow(clientIP) {
-			s.emitter.CountDropped(r.Context(), telemetry.ReasonRateLimited, "")
-			s.log.Warn("rate limited", "source", source, "client_ip", clientIP,
-				"rate_limit_rps", s.cfg.RateLimitRPS, "burst", s.cfg.RateLimitBurst)
-			w.WriteHeader(http.StatusTooManyRequests)
-			return
-		}
 		body, err := guard.ReadBody(r, s.cfg.MaxBodyBytes)
 		if err != nil {
 			reason := telemetry.ReasonInvalid
@@ -173,6 +197,10 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 		if err != nil {
 			reason := telemetry.ReasonInvalid
 			switch {
+			case errors.Is(err, guard.ErrTooLarge),
+				errors.Is(err, guard.ErrTooDeep),
+				errors.Is(err, guard.ErrArrayTooLong):
+				reason = telemetry.ReasonTooLarge
 			case errors.Is(err, intake.ErrInvalidReport):
 				reason = telemetry.ReasonSchema
 			case errors.Is(err, intake.ErrNoReports), errors.Is(err, intake.ErrUnsupportedType):
@@ -186,8 +214,9 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 		}
 		for _, report := range reports {
 			s.emitter.CountReceived(r.Context(), report.Type, report.Domain)
-			s.emitter.Emit(r.Context(), report)
-			s.emitter.CountAccepted(r.Context(), report.Type, report.Domain)
+			if s.emitter.Emit(r.Context(), report) {
+				s.emitter.CountAccepted(r.Context(), report.Type, report.Domain)
+			}
 		}
 		s.log.Debug("reports accepted", "source", source, "client_ip", clientIP,
 			"reports", len(reports), "bytes", len(body))

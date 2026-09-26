@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"kiota.ch/damian-buho/report-relay/internal/guard"
@@ -45,7 +47,7 @@ func TestLegacyCSPReportNormalisesToReportingAPI(t *testing.T) {
 	if report.URL != "https://beta.dbuho.me/" {
 		t.Errorf("url = %q, want the query and fragment dropped", report.URL)
 	}
-	if report.Body[fieldEffectiveDirectve] != "script-src" {
+	if report.Body[fieldEffectiveDirective] != "script-src" {
 		t.Errorf("effectiveDirective = %v, want the camelCase key the Reporting API uses", report.Body["effectiveDirective"])
 	}
 	if _, legacy := report.Body["document-uri"]; legacy {
@@ -260,5 +262,126 @@ func TestKeepQueryPreservesTheURL(t *testing.T) {
 	}
 	if reports[0].Body["documentURL"] != "https://beta.dbuho.me/?t=1" {
 		t.Errorf("documentURL = %v, want the query kept", reports[0].Body["documentURL"])
+	}
+}
+
+func TestReportingAPIBatchOverTheArrayCapIsRejected(t *testing.T) {
+	limits := guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 2}
+	body := []byte(`[
+	  {"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}},
+	  {"type":"deprecation","age":2,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}},
+	  {"type":"deprecation","age":3,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}}
+	]`)
+	if _, err := Decode(MediaReportingAPI, body, limits, false); !errors.Is(err, guard.ErrArrayTooLong) {
+		t.Fatalf("err = %v, want ErrArrayTooLong on the request path", err)
+	}
+}
+
+func TestMaliciousTypeBucketsAsUnknownWithRawKept(t *testing.T) {
+	body := []byte(`[{"type":"xss\"><svg onload=alert(1)>","age":1,"url":"https://beta.dbuho.me/",
+	  "body":{"documentURL":"https://beta.dbuho.me/"}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Type != typeUnknown {
+		t.Errorf("type = %q, want the label-safe bucket", reports[0].Type)
+	}
+	if _, ok := reports[0].Body["reported-type"]; !ok {
+		t.Error("the sender's raw type is missing from the log body")
+	}
+}
+
+func TestOverlongTypeBucketsAsUnknown(t *testing.T) {
+	raw := strings.Repeat("a", 65)
+	body := []byte(`[{"type":"` + raw + `","age":1,"url":"https://beta.dbuho.me/"}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Type != typeUnknown {
+		t.Errorf("type = %q, want unknown past 64 characters", reports[0].Type)
+	}
+}
+
+func TestUppercaseUnknownTypeIsFolded(t *testing.T) {
+	body := []byte(`[{"type":"Certificate-Transparency","age":1,"url":"https://beta.dbuho.me/"}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Type != "certificate-transparency" {
+		t.Errorf("type = %q, want the folded form", reports[0].Type)
+	}
+}
+
+func TestTLSRPTFailureDetailsOverTheCapAreRejected(t *testing.T) {
+	limits := guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 1}
+	body := []byte(`{"organization-name":"dbuho.me","report-id":"r1","result-type":"individual",
+	  "failure-details":[
+	    {"result-type":"expired","server-name":"mx1.dbuho.me"},
+	    {"result-type":"protocol","server-name":"mx2.dbuho.me"}]}`)
+	if _, err := Decode(MediaTLSRPTJSON, body, limits, false); !errors.Is(err, guard.ErrArrayTooLong) {
+		t.Fatalf("err = %v, want ErrArrayTooLong", err)
+	}
+}
+
+func TestTLSRPTResultTypeIsSanitized(t *testing.T) {
+	body := []byte(`{"organization-name":"dbuho.me","report-id":"r1","result-type":"individual",
+	  "failure-details":[{"result-type":"EVIL type!!","server-name":"mx1.dbuho.me"}]}`)
+	reports, err := Decode(MediaTLSRPTJSON, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Type != typeUnknown {
+		t.Errorf("type = %q, want unknown", reports[0].Type)
+	}
+}
+
+func TestRedactURLStripsUserinfo(t *testing.T) {
+	if got := redactURL("https://user:secret@beta.dbuho.me/path"); got != "https://beta.dbuho.me/path" {
+		t.Errorf("redactURL = %q, want the secret gone", got)
+	}
+}
+
+func TestLegacySourceFileIsRenamedAndRedacted(t *testing.T) {
+	body := []byte(`{"csp-report":{"document-uri":"https://beta.dbuho.me/","violated-directive":"script-src",` +
+		`"blocked-uri":"https://evil.example/x.js","effective-directive":"script-src",` +
+		`"source-file":"https://beta.dbuho.me/app.js?token=secret"}}`)
+	reports, err := Decode(MediaCSPReport, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if _, legacy := reports[0].Body["source-file"]; legacy {
+		t.Error("the kebab-case source-file survived normalisation")
+	}
+	if reports[0].Body[fieldSourceFile] != "https://beta.dbuho.me/app.js" {
+		t.Errorf("sourceFile = %v, want the query dropped", reports[0].Body[fieldSourceFile])
+	}
+}
+
+func TestLegacyCSPWithoutDocumentURIDropsWithACount(t *testing.T) {
+	body := []byte(`{"csp-report":{"violated-directive":"script-src",` +
+		`"blocked-uri":"https://evil.example/x.js","effective-directive":"script-src",` +
+		`"referrer":"https://beta.dbuho.me/page"}}`)
+	if _, err := Decode(MediaCSPReport, body, testLimits(), false); !errors.Is(err, ErrInvalidReport) {
+		t.Fatalf("err = %v, want ErrInvalidReport: a record without a site is dropped, not stored", err)
+	}
+}
+
+func TestRedactBodyRecursesIntoNesting(t *testing.T) {
+	body := map[string]any{
+		"nested": map[string]any{"blockedURL": "https://evil.example/x.js?token=secret"},
+		"list":   []any{map[string]any{"documentURL": "https://beta.dbuho.me/a?token=secret"}},
+	}
+	redactBody(body, false)
+	nested := body["nested"].(map[string]any)
+	if nested["blockedURL"] != "https://evil.example/x.js" {
+		t.Errorf("nested blockedURL = %v, want the query dropped", nested["blockedURL"])
+	}
+	list := body["list"].([]any)
+	first := list[0].(map[string]any)
+	if first["documentURL"] != "https://beta.dbuho.me/a" {
+		t.Errorf("listed documentURL = %v, want the query dropped", first["documentURL"])
 	}
 }
