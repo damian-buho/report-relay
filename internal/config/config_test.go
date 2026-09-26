@@ -31,6 +31,15 @@ func TestValidateAcceptsSaneValues(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsTrustedProxyNets(t *testing.T) {
+	cfg := validConfig()
+	cfg.TrustProxy = true
+	cfg.TrustedProxyCIDRs = []string{"10.0.0.0/8", "192.0.2.1"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
 func TestValidateRejectsFootguns(t *testing.T) {
 	cases := map[string]func(*Config){
 		"burst":   func(c *Config) { c.RateLimitBurst = 0 },
@@ -42,6 +51,7 @@ func TestValidateRejectsFootguns(t *testing.T) {
 		"array":   func(c *Config) { c.MaxArrayItems = -3 },
 		"queue":   func(c *Config) { c.QueueSize = 0 },
 		"timeout": func(c *Config) { c.ExportTimeout = 0 },
+		"proxy":   func(c *Config) { c.TrustedProxyCIDRs = []string{"not-a-cidr"} },
 	}
 	for name, mutate := range cases {
 		cfg := validConfig()

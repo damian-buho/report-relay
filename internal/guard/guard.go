@@ -128,23 +128,70 @@ func (l *Limiter) evict(now time.Time) {
 	}
 }
 
-// ClientIP returns the address the request came from. A forwarded header is
-// honoured only when the operator declared the intake to sit behind a proxy
-// they control, because an unverified header lets a caller pick its own bucket.
-func ClientIP(r *http.Request, trustProxy bool) string {
-	if trustProxy {
-		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-			if first, _, found := strings.Cut(fwd, ","); found {
-				return strings.TrimSpace(first)
+// ParseTrustedProxies parses comma-split CIDRs and bare IPs into networks a proxy peer may come from.
+func ParseTrustedProxies(cidrs []string) ([]*net.IPNet, error) {
+	var out []*net.IPNet
+	for _, c := range cidrs {
+		if c = strings.TrimSpace(c); c == "" {
+			continue
+		}
+		if ip := net.ParseIP(c); ip != nil {
+			bits := 128
+			if ip.To4() != nil {
+				bits = 32
 			}
-			return strings.TrimSpace(fwd)
+			out = append(out, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+			continue
+		}
+		_, network, err := net.ParseCIDR(c)
+		if err != nil {
+			return nil, fmt.Errorf("trusted proxy %q: %w", c, err)
+		}
+		out = append(out, network)
+	}
+	return out, nil
+}
+
+// isTrusted reports whether host is an IP inside one of the trusted networks.
+func isTrusted(host string, trusted []*net.IPNet) bool {
+	ip := net.ParseIP(strings.TrimSpace(host))
+	if ip == nil {
+		return false
+	}
+	for _, network := range trusted {
+		if network.Contains(ip) {
+			return true
 		}
 	}
+	return false
+}
+
+// remoteHost splits the socket address, keeping the raw value when it has no port.
+func remoteHost(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// ClientIP returns the socket peer, or the nearest untrusted forwarded hop when the peer itself is a trusted proxy.
+func ClientIP(r *http.Request, trustProxy bool, trusted []*net.IPNet) string {
+	peer := remoteHost(r)
+	if !trustProxy || !isTrusted(peer, trusted) {
+		return peer
+	}
+	hops := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for i := len(hops) - 1; i >= 0; i-- {
+		hop := strings.TrimSpace(hops[i])
+		if net.ParseIP(hop) == nil {
+			continue
+		}
+		if !isTrusted(hop, trusted) {
+			return hop
+		}
+	}
+	return peer
 }
 
 // ReadBody reads at most limits.MaxBodyBytes from the request, transparently

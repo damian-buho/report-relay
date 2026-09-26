@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -138,21 +139,71 @@ func TestClientIPIgnoresForwardedHeaderByDefault(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.RemoteAddr = "192.0.2.10:5555"
 	req.Header.Set("X-Forwarded-For", "1.2.3.4")
-	if got := ClientIP(req, false); got != "192.0.2.10" {
+	if got := ClientIP(req, false, nil); got != "192.0.2.10" {
 		t.Errorf("ClientIP = %q, want the socket address when the proxy is not trusted", got)
 	}
-	if got := ClientIP(req, true); got != "1.2.3.4" {
-		t.Errorf("ClientIP = %q, want the first forwarded hop when the proxy is trusted", got)
+	if got := ClientIP(req, true, nil); got != "192.0.2.10" {
+		t.Errorf("ClientIP = %q, want the socket address when no proxy network is trusted", got)
 	}
 }
 
-func TestClientIPUsesTheFirstForwardedHop(t *testing.T) {
+func TestClientIPIgnoresForgedHeaderFromUntrustedPeer(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.RemoteAddr = "192.0.2.10:5555"
-	req.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8, 9.10.11.12")
-	if got := ClientIP(req, true); got != "1.2.3.4" {
-		t.Errorf("ClientIP = %q, want 1.2.3.4", got)
+	req.RemoteAddr = "198.51.100.9:4444"
+	req.Header.Set("X-Forwarded-For", "1.2.3.4")
+	if got := ClientIP(req, true, mustNets(t, "10.0.0.0/8")); got != "198.51.100.9" {
+		t.Errorf("ClientIP = %q, want the socket peer for a forged header", got)
 	}
+}
+
+func TestClientIPUsesNearestUntrustedHopFromTrustedPeer(t *testing.T) {
+	trusted := mustNets(t, "172.16.0.0/12")
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.RemoteAddr = "172.18.0.2:8080"
+	req.Header.Set("X-Forwarded-For", "198.51.100.9, 203.0.113.7")
+	if got := ClientIP(req, true, trusted); got != "203.0.113.7" {
+		t.Errorf("ClientIP = %q, want the hop nearest the proxy", got)
+	}
+	single := httptest.NewRequest(http.MethodPost, "/", nil)
+	single.RemoteAddr = "172.18.0.2:8080"
+	single.Header.Set("X-Forwarded-For", "198.51.100.9")
+	if got := ClientIP(single, true, trusted); got != "198.51.100.9" {
+		t.Errorf("ClientIP = %q, want the single forwarded address", got)
+	}
+}
+
+func TestClientIPFallsBackWhenTheChainIsAllTrusted(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.RemoteAddr = "10.0.0.1:5555"
+	req.Header.Set("X-Forwarded-For", "10.0.0.5, 10.0.0.6")
+	if got := ClientIP(req, true, mustNets(t, "10.0.0.0/8")); got != "10.0.0.1" {
+		t.Errorf("ClientIP = %q, want the socket peer when no hop is a client", got)
+	}
+}
+
+func TestParseTrustedProxies(t *testing.T) {
+	nets, err := ParseTrustedProxies([]string{"10.0.0.0/8", "192.0.2.1", " 2001:db8::/32 "})
+	if err != nil {
+		t.Fatalf("ParseTrustedProxies: %v", err)
+	}
+	if len(nets) != 3 {
+		t.Fatalf("networks = %d, want 3", len(nets))
+	}
+	if !nets[1].Contains(net.ParseIP("192.0.2.1")) || nets[1].Contains(net.ParseIP("192.0.2.2")) {
+		t.Error("a bare IP must parse as a single-host network")
+	}
+	if _, err := ParseTrustedProxies([]string{"not-a-cidr"}); err == nil {
+		t.Error("garbage was accepted as a trusted proxy")
+	}
+}
+
+func mustNets(t *testing.T, cidrs ...string) []*net.IPNet {
+	t.Helper()
+	nets, err := ParseTrustedProxies(cidrs)
+	if err != nil {
+		t.Fatalf("ParseTrustedProxies: %v", err)
+	}
+	return nets
 }
 
 func TestLimiterBoundsTheTable(t *testing.T) {

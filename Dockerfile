@@ -73,6 +73,7 @@ ENV M6E_VERSION=${M6E_VERSION}                \
     REPORT_RELAY_RATE_LIMIT_BURST=40          \
     REPORT_RELAY_KEEP_QUERY=false             \
     REPORT_RELAY_TRUST_PROXY=false            \
+    REPORT_RELAY_TRUSTED_PROXIES=""           \
     REPORT_RELAY_EXPORT_TIMEOUT=10s           \
     REPORT_RELAY_SHUTDOWN_TIMEOUT=15s         \
      REPORT_RELAY_ENABLE_REPORTING_API=true    \

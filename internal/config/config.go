@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"kiota.ch/damian-buho/report-relay/internal/guard"
 )
 
 // Config is the whole effective configuration of one process.
@@ -31,6 +33,7 @@ type Config struct {
 	AllowedOrigins       []string
 	KeepQuery            bool
 	TrustProxy           bool
+	TrustedProxyCIDRs    []string
 	ExportTimeout        time.Duration
 	ShutdownTimeout      time.Duration
 	ReportingAPIOn       bool
@@ -49,28 +52,29 @@ type Config struct {
 // on every value that had to fall back to its default.
 func Load() Config {
 	cfg := Config{
-		ServiceName:     envOr("REPORT_RELAY_SERVICE_NAME", "report-relay"),
-		Namespace:       envOr("REPORT_RELAY_SERVICE_NAMESPACE", "me.dbuho"),
-		LogLevel:        parseLevel(envOr("REPORT_RELAY_LOG_LEVEL", "info")),
-		HTTPPort:        envOr("REPORT_RELAY_HTTP_PORT", "8080"),
-		AdminPort:       envOr("REPORT_RELAY_ADMIN_PORT", "8081"),
-		MaxBodyBytes:    int64(envIntOr("REPORT_RELAY_MAX_BODY_BYTES", 65536)),
-		MaxJSONDepth:    envIntOr("REPORT_RELAY_MAX_JSON_DEPTH", 32),
-		MaxArrayItems:   envIntOr("REPORT_RELAY_MAX_ARRAY_ITEMS", 512),
-		RateLimitRPS:    envFloatOr("REPORT_RELAY_RATE_LIMIT_RPS", 20),
-		RateLimitBurst:  envIntOr("REPORT_RELAY_RATE_LIMIT_BURST", 40),
-		AllowedOrigins:  splitList(os.Getenv("REPORT_RELAY_ALLOWED_ORIGINS")),
-		KeepQuery:       envBoolOr("REPORT_RELAY_KEEP_QUERY", false),
-		TrustProxy:      envBoolOr("REPORT_RELAY_TRUST_PROXY", false),
-		ExportTimeout:   envDurationOr("REPORT_RELAY_EXPORT_TIMEOUT", 10*time.Second),
-		ShutdownTimeout: envDurationOr("REPORT_RELAY_SHUTDOWN_TIMEOUT", 15*time.Second),
-		ReportingAPIOn:  envBoolOr("REPORT_RELAY_ENABLE_REPORTING_API", true),
-		CSPOn:           envBoolOr("REPORT_RELAY_ENABLE_CSP", true),
-		TLSRPTOn:        envBoolOr("REPORT_RELAY_ENABLE_TLSRPT", true),
-		ExpectCTOn:      envBoolOr("REPORT_RELAY_ENABLE_EXPECT_CT", true),
-		HPKPOn:          envBoolOr("REPORT_RELAY_ENABLE_HPKP", true),
-		QueueSize:       envIntOr("REPORT_RELAY_QUEUE_SIZE", 2048),
-		BatchTimeout:    envDurationOr("REPORT_RELAY_BATCH_TIMEOUT", 5*time.Second),
+		ServiceName:       envOr("REPORT_RELAY_SERVICE_NAME", "report-relay"),
+		Namespace:         envOr("REPORT_RELAY_SERVICE_NAMESPACE", "me.dbuho"),
+		LogLevel:          parseLevel(envOr("REPORT_RELAY_LOG_LEVEL", "info")),
+		HTTPPort:          envOr("REPORT_RELAY_HTTP_PORT", "8080"),
+		AdminPort:         envOr("REPORT_RELAY_ADMIN_PORT", "8081"),
+		MaxBodyBytes:      int64(envIntOr("REPORT_RELAY_MAX_BODY_BYTES", 65536)),
+		MaxJSONDepth:      envIntOr("REPORT_RELAY_MAX_JSON_DEPTH", 32),
+		MaxArrayItems:     envIntOr("REPORT_RELAY_MAX_ARRAY_ITEMS", 512),
+		RateLimitRPS:      envFloatOr("REPORT_RELAY_RATE_LIMIT_RPS", 20),
+		RateLimitBurst:    envIntOr("REPORT_RELAY_RATE_LIMIT_BURST", 40),
+		AllowedOrigins:    splitList(os.Getenv("REPORT_RELAY_ALLOWED_ORIGINS")),
+		KeepQuery:         envBoolOr("REPORT_RELAY_KEEP_QUERY", false),
+		TrustProxy:        envBoolOr("REPORT_RELAY_TRUST_PROXY", false),
+		TrustedProxyCIDRs: splitList(os.Getenv("REPORT_RELAY_TRUSTED_PROXIES")),
+		ExportTimeout:     envDurationOr("REPORT_RELAY_EXPORT_TIMEOUT", 10*time.Second),
+		ShutdownTimeout:   envDurationOr("REPORT_RELAY_SHUTDOWN_TIMEOUT", 15*time.Second),
+		ReportingAPIOn:    envBoolOr("REPORT_RELAY_ENABLE_REPORTING_API", true),
+		CSPOn:             envBoolOr("REPORT_RELAY_ENABLE_CSP", true),
+		TLSRPTOn:          envBoolOr("REPORT_RELAY_ENABLE_TLSRPT", true),
+		ExpectCTOn:        envBoolOr("REPORT_RELAY_ENABLE_EXPECT_CT", true),
+		HPKPOn:            envBoolOr("REPORT_RELAY_ENABLE_HPKP", true),
+		QueueSize:         envIntOr("REPORT_RELAY_QUEUE_SIZE", 2048),
+		BatchTimeout:      envDurationOr("REPORT_RELAY_BATCH_TIMEOUT", 5*time.Second),
 
 		ExportInitialBackoff: envDurationOr("REPORT_RELAY_EXPORT_INITIAL_BACKOFF", 500*time.Millisecond),
 		ExportMaxBackoff:     envDurationOr("REPORT_RELAY_EXPORT_MAX_BACKOFF", 30*time.Second),
@@ -96,6 +100,7 @@ func (c Config) Log(log *slog.Logger) {
 		"allowed_origins", c.AllowedOrigins,
 		"keep_query", c.KeepQuery,
 		"trust_proxy", c.TrustProxy,
+		"trusted_proxies", c.TrustedProxyCIDRs,
 		"export_timeout", c.ExportTimeout,
 		"shutdown_timeout", c.ShutdownTimeout,
 		"queue_size", c.QueueSize,
@@ -116,6 +121,12 @@ func (c Config) Log(log *slog.Logger) {
 // rather than fail open or closed at runtime.
 func (c Config) Validate() error {
 	var errs []string
+	if c.TrustProxy && len(c.TrustedProxyCIDRs) == 0 {
+		slog.Warn("trust_proxy on with no trusted proxies: forwarded headers stay ignored")
+	}
+	if _, err := guard.ParseTrustedProxies(c.TrustedProxyCIDRs); err != nil {
+		errs = append(errs, err.Error())
+	}
 	if c.RateLimitBurst < 1 {
 		errs = append(errs, fmt.Sprintf("rate limit burst %d: want >= 1", c.RateLimitBurst))
 	}

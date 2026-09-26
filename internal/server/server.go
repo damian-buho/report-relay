@@ -8,6 +8,7 @@ package server
 import (
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"time"
@@ -32,12 +33,17 @@ type Server struct {
 	emitter  *telemetry.Emitter
 	limiter  *guard.Limiter
 	limits   guard.Limits
+	trusted  []*net.IPNet
 	handlers map[string]http.HandlerFunc
 	ready    func() bool
 }
 
 // New builds the intake and admin handlers.
 func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready func() bool) *Server {
+	trusted, err := guard.ParseTrustedProxies(cfg.TrustedProxyCIDRs)
+	if err != nil {
+		log.Warn("bad trusted proxies, trusting none", "error", err)
+	}
 	s := &Server{
 		cfg:     cfg,
 		log:     log,
@@ -48,7 +54,8 @@ func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready 
 			MaxJSONDepth:  cfg.MaxJSONDepth,
 			MaxArrayItems: cfg.MaxArrayItems,
 		},
-		ready: ready,
+		trusted: trusted,
+		ready:   ready,
 	}
 	s.handlers = map[string]http.HandlerFunc{
 		intake.MediaReportingAPI: s.intake(intake.SourceReportingAPI, cfg.ReportingAPIOn),
@@ -148,7 +155,7 @@ func (s *Server) originAllowed(origin string) bool {
 // content types cost a token like everything else instead of bypassing it.
 func (s *Server) handleIntake(w http.ResponseWriter, r *http.Request) {
 	s.writeCORS(w, r)
-	clientIP := guard.ClientIP(r, s.cfg.TrustProxy)
+	clientIP := guard.ClientIP(r, s.cfg.TrustProxy, s.trusted)
 	if !s.limiter.Allow(clientIP) {
 		s.emitter.CountDropped(r.Context(), telemetry.ReasonRateLimited, "")
 		s.log.Warn("rate limited", "client_ip", clientIP,
@@ -182,7 +189,7 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		clientIP := guard.ClientIP(r, s.cfg.TrustProxy)
+		clientIP := guard.ClientIP(r, s.cfg.TrustProxy, s.trusted)
 		body, err := guard.ReadBody(r, s.cfg.MaxBodyBytes)
 		if err != nil {
 			reason := telemetry.ReasonInvalid
