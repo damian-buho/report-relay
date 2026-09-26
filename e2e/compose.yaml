@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Damián Búho <damian.buho@proton.me>
+#
+# SPDX-License-Identifier: MIT
+---
+name: report-relay-e2e
+services:
+  e2e-loki:
+    container_name: report-relay-e2e-loki
+    image: kiota.ch/o9s/loki:latest
+    ports:
+      - "127.0.0.1:3100:8080"
+    networks:
+      - e2e-net
+  e2e-alloy:
+    container_name: report-relay-e2e-alloy
+    image: kiota.ch/o9s/alloy:latest
+    ports:
+      - "127.0.0.1:4318:4318"
+    networks:
+      - e2e-net
+    environment:
+      - O9S_LOKI_HTTP_HOST=e2e-loki
+      - O9S_LOKI_TENANT_ID=o9s
+    depends_on:
+      e2e-loki:
+        condition: service_started
+networks:
+  e2e-net:
+    name: report-relay-e2e-net
