@@ -72,6 +72,8 @@ func testConfig() config.Config {
 		ReportingAPIOn: true,
 		CSPOn:          true,
 		TLSRPTOn:       true,
+		ExpectCTOn:     true,
+		HPKPOn:         true,
 	}
 }
 
@@ -119,7 +121,7 @@ func testServer(t *testing.T, cfg config.Config) (*Server, *testSink, *telemetry
 
 // oneReport is a Reporting API batch of one, the smallest body a rate-limit or
 // queue test needs to get past the decoder.
-const oneReport = `[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}}]`
+const oneReport = `[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}}]`
 
 func post(t *testing.T, handler http.Handler, mediaType, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -136,7 +138,7 @@ func TestEmitSetsEventNameAsAnAttributeNotOnlyAField(t *testing.T) {
 	// report type out of the label set, and every query filtering on it returns
 	// nothing — so the attribute is load-bearing, not decoration.
 	srv, sink, sinkEmitter := testServer(t, testConfig())
-	body := `[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}}]`
+	body := `[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}}]`
 	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body); rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", rec.Code)
 	}
@@ -177,8 +179,8 @@ func TestReportingAPIBatchOfThreeBecomesThreeRecords(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
 	body := `[
 	  {"type":"csp-violation","age":5,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/","effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}},
-	  {"type":"deprecation","age":60,"url":"https://beta.dbuho.me/legacy","body":{"documentURL":"https://beta.dbuho.me/legacy"}},
-	  {"type":"network-error","age":120,"url":"https://beta.dbuho.me/api","body":{"documentURL":"https://beta.dbuho.me/api","phase":"dns"}}
+	  {"type":"deprecation","age":60,"url":"https://beta.dbuho.me/legacy","body":{"id":"websql","message":"WebSQL is deprecated"}},
+	  {"type":"network-error","age":120,"url":"https://beta.dbuho.me/api","body":{"phase":"dns","type":"dns.address_changed","method":"GET","protocol":"http/1.1","referrer":"https://beta.dbuho.me/","sampling-fraction":1.0,"server-ip":"93.184.216.34","status-code":0,"elapsed-time":12}}
 	]`
 	rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body)
 	if rec.Code != http.StatusNoContent {
@@ -492,11 +494,76 @@ func TestOversizeBatchIsRefusedAsTooLarge(t *testing.T) {
 	cfg.MaxArrayItems = 1
 	srv, _, _ := testServer(t, cfg)
 	body := `[
-	  {"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}},
-	  {"type":"deprecation","age":2,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}}
+	  {"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}},
+	  {"type":"deprecation","age":2,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}}
 	]`
 	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body); rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want 413 for a batch past the array cap", rec.Code)
+	}
+}
+
+func TestCOOPPostBecomesOneRecord(t *testing.T) {
+	srv, sink, sinkEmitter := testServer(t, testConfig())
+	body := `[{"type":"coop","age":3,"url":"https://beta.dbuho.me/",
+	  "body":{"disposition":"enforce","effectivePolicy":"same-origin-allow-popups","type":"navigation-to-response"}}]`
+	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	records := sink.Records(t, sinkEmitter)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	assertAttribute(t, records[0], "event.name", "coop")
+	assertAttribute(t, records[0], "report.source", "reporting-api")
+}
+
+func TestExpectCTPostBecomesOneRecord(t *testing.T) {
+	srv, sink, sinkEmitter := testServer(t, testConfig())
+	body := `{"expect-ct-report":{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.dbuho.me",
+	  "port":443,"effective-expiration-date":"2026-10-26T00:00:00Z",
+	  "served-certificate-chain":["PEM1"],"validated-certificate-chain":["PEM1"]}}`
+	if rec := post(t, srv.IntakeHandler(), intake.MediaExpectCT, body); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	records := sink.Records(t, sinkEmitter)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	assertAttribute(t, records[0], "event.name", "expect-ct")
+	assertAttribute(t, records[0], "report.url_host", "beta.dbuho.me")
+}
+
+func TestDisabledExpectCTAnswersServiceUnavailable(t *testing.T) {
+	cfg := testConfig()
+	cfg.ExpectCTOn = false
+	srv, _, _ := testServer(t, cfg)
+	rec := post(t, srv.IntakeHandler(), intake.MediaExpectCT, `{"expect-ct-report":{"hostname":"beta.dbuho.me"}}`)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestHPKPPostBecomesOneRecord(t *testing.T) {
+	srv, sink, sinkEmitter := testServer(t, testConfig())
+	body := `{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.dbuho.me","port":443,
+	  "effective-expiration-date":"2026-10-26T00:00:00Z","include-subdomains":false,
+	  "noted-hostname":"beta.dbuho.me","served-certificate-chain":["PEM1"],
+	  "validated-certificate-chain":["PEM1"],"known-pins":["pin-sha256=\"abcd\""]}`
+	if rec := post(t, srv.IntakeHandler(), intake.MediaHPKP, body); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	records := sink.Records(t, sinkEmitter)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	assertAttribute(t, records[0], "event.name", "hpkp")
+}
+
+func TestForeignJSONIsNotAPinFailure(t *testing.T) {
+	srv, _, _ := testServer(t, testConfig())
+	rec := post(t, srv.IntakeHandler(), intake.MediaHPKP, `{"hello":"world"}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 for JSON outside the pin shape", rec.Code)
 	}
 }
 

@@ -15,7 +15,10 @@ import (
 // (a CT report, a future Reporting API type) is a new decoder that fills this
 // same struct; nothing downstream changes.
 type Report struct {
-	// Type is the report type as the sender named it, kept verbatim.
+	// Type is the report type, folded onto one vocabulary and bounded for
+	// label use. A sender spelling the decoder recognises maps to the known
+	// name; anything else arrives lowercased, or as unknown with the raw
+	// value kept in the body.
 	Type string
 	// Domain is the reporting surface: browser or mail.
 	Domain string
@@ -34,7 +37,9 @@ type Report struct {
 func severity(reportType string) string {
 	switch reportType {
 	case typeCSPViolation, typeCOEP, typeCOEPViolation, typeNetworkError,
-		typePermissions, "integrity-report", "attribution-reporting":
+		typeCOOP, typeCrash, typeIntegrityViolation, typeDocumentPolicy,
+		typePermissions, typeFeaturePolicy, typeExpectCT, typeHPKP,
+		"attribution-reporting":
 		return "WARN"
 	default:
 		return "INFO"
@@ -54,6 +59,8 @@ const (
 	SourceReportingAPI = "reporting-api"
 	SourceCSP          = "csp"
 	SourceTLSRPT       = "tlsrpt"
+	SourceExpectCT     = "expect-ct"
+	SourceHPKP         = "hpkp"
 )
 
 // The reporting domains, as they appear in the event.domain attribute.
@@ -66,34 +73,50 @@ const (
 // share. A literal repeated across the intake is a typo waiting to happen, and
 // the linter is right to say so.
 const (
-	typeCSPViolation  = "csp-violation"
-	typeCOEP          = "coep"
-	typeCOEPViolation = "coep-violation"
-	typeNetworkError  = "network-error"
-	typeDeprecation   = "deprecation"
-	typePermissions   = "permissions-policy-violation"
+	typeCSPViolation         = "csp-violation"
+	typeCOEP                 = "coep"
+	typeCOEPViolation        = "coep-violation"
+	typeCOOP                 = "coop"
+	typeNetworkError         = "network-error"
+	typeDeprecation          = "deprecation"
+	typeIntervention         = "intervention"
+	typeCrash                = "crash"
+	typeIntegrityViolation   = "integrity-violation"
+	typePermissions          = "permissions-policy-violation"
+	typeFeaturePolicy        = "feature-policy-violation"
+	typePotentialPermissions = "potential-permissions-policy-violation"
+	typeDocumentPolicy       = "document-policy-violation"
+	typeExpectCT             = "expect-ct"
+	typeHPKP                 = "hpkp"
 
 	fieldDocumentURL        = "documentURL"
 	fieldBlockedURL         = "blockedURL"
 	fieldEffectiveDirective = "effectiveDirective"
 	fieldSourceFile         = "sourceFile"
 	fieldReferrer           = "referrer"
+	fieldDisposition        = "disposition"
+	fieldPolicyID           = "policyId"
+	fieldType               = "type"
 )
 
 // urlFields are the report body keys whose value is a URL. They are redacted
 // unless the operator opted out, because a query string routinely carries a token.
 var urlFields = map[string]bool{
-	"documentURI":    true,
-	fieldBlockedURL:  true,
-	fieldReferrer:    true,
-	"document-uri":   true,
-	"blocked-uri":    true,
-	"source-file":    true,
-	fieldSourceFile:  true,
-	"effectiveURI":   true,
-	"sourceURL":      true,
-	"sample":         true,
-	fieldDocumentURL: true,
+	"documentURI":     true,
+	fieldBlockedURL:   true,
+	fieldReferrer:     true,
+	"document-uri":    true,
+	"blocked-uri":     true,
+	"source-file":     true,
+	fieldSourceFile:   true,
+	"srcAttribute":    true,
+	"allowAttribute":  true,
+	"initialPopupURL": true,
+	"openeeURL":       true,
+	"effectiveURI":    true,
+	"sourceURL":       true,
+	"sample":          true,
+	fieldDocumentURL:  true,
 }
 
 // redactURL drops the query string, the fragment and any userinfo of a URL,

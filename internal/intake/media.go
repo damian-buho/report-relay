@@ -18,6 +18,8 @@ const (
 	MediaCSPReport    = "application/csp-report"
 	MediaTLSRPTJSON   = "application/tlsrpt+json"
 	MediaTLSRPTGzip   = "application/tlsrpt+gzip"
+	MediaExpectCT     = "application/expect-ct-report+json"
+	MediaHPKP         = "application/json"
 )
 
 // ErrUnsupportedType is returned for a content type no enabled intake claims.
@@ -66,13 +68,23 @@ func RegisterBodyHook(reportType string, hook bodyHook) {
 }
 
 // requiredBody lists the body keys a report type must carry to be accepted.
+// The shapes are the ones browsers actually send: a COEP body has no
+// documentURL, a NEL body has no documentURL either, and a deprecation body
+// is keyed on its id. Requiring a field no sender emits would drop real
+// reports, so each entry holds only the always-present identifying keys.
 var requiredBody = map[string][]string{
-	typeCSPViolation:  {fieldDocumentURL, fieldEffectiveDirective, fieldBlockedURL},
-	typeCOEP:          {fieldDocumentURL},
-	typeCOEPViolation: {fieldDocumentURL},
-	typeNetworkError:  {fieldDocumentURL, "phase"},
-	typeDeprecation:   {fieldDocumentURL},
-	typePermissions:   {fieldDocumentURL},
+	typeCSPViolation:         {fieldDocumentURL, fieldEffectiveDirective, fieldBlockedURL},
+	typeCOEP:                 {fieldType, fieldDisposition},
+	typeCOEPViolation:        {fieldType, fieldDisposition},
+	typeCOOP:                 {fieldDisposition, "effectivePolicy", fieldType},
+	typeNetworkError:         {"phase", fieldType},
+	typeDeprecation:          {"id", "message"},
+	typeIntervention:         {"id", "message"},
+	typeIntegrityViolation:   {fieldDocumentURL, fieldBlockedURL},
+	typePermissions:          {fieldPolicyID, fieldDisposition},
+	typeFeaturePolicy:        {"featureId", fieldDisposition},
+	typePotentialPermissions: {fieldPolicyID, fieldDisposition},
+	typeDocumentPolicy:       {fieldPolicyID, fieldDisposition},
 }
 
 func init() {

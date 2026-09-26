@@ -31,6 +31,7 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - `REPORT_RELAY_KEEP_QUERY=false`, `REPORT_RELAY_TRUST_PROXY=false`
 - `REPORT_RELAY_EXPORT_TIMEOUT=10s`, `REPORT_RELAY_SHUTDOWN_TIMEOUT=15s`
 - `REPORT_RELAY_ENABLE_REPORTING_API=true`, `REPORT_RELAY_ENABLE_CSP=true`, `REPORT_RELAY_ENABLE_TLSRPT=true`
+- `REPORT_RELAY_ENABLE_EXPECT_CT=true`, `REPORT_RELAY_ENABLE_HPKP=true`
 - The exporter reads the standard `OTEL_EXPORTER_OTLP_*` variables itself
 
 ## Contracts with the fleet

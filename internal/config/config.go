@@ -36,6 +36,8 @@ type Config struct {
 	ReportingAPIOn       bool
 	CSPOn                bool
 	TLSRPTOn             bool
+	ExpectCTOn           bool
+	HPKPOn               bool
 	QueueSize            int
 	BatchTimeout         time.Duration
 	ExportInitialBackoff time.Duration
@@ -65,6 +67,8 @@ func Load() Config {
 		ReportingAPIOn:  envBoolOr("REPORT_RELAY_ENABLE_REPORTING_API", true),
 		CSPOn:           envBoolOr("REPORT_RELAY_ENABLE_CSP", true),
 		TLSRPTOn:        envBoolOr("REPORT_RELAY_ENABLE_TLSRPT", true),
+		ExpectCTOn:      envBoolOr("REPORT_RELAY_ENABLE_EXPECT_CT", true),
+		HPKPOn:          envBoolOr("REPORT_RELAY_ENABLE_HPKP", true),
 		QueueSize:       envIntOr("REPORT_RELAY_QUEUE_SIZE", 2048),
 		BatchTimeout:    envDurationOr("REPORT_RELAY_BATCH_TIMEOUT", 5*time.Second),
 
@@ -102,6 +106,8 @@ func (c Config) Log(log *slog.Logger) {
 		"reporting_api", c.ReportingAPIOn,
 		"csp", c.CSPOn,
 		"tlsrpt", c.TLSRPTOn,
+		"expect_ct", c.ExpectCTOn,
+		"hpkp", c.HPKPOn,
 	)
 }
 

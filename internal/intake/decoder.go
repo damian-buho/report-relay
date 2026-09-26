@@ -27,6 +27,8 @@ var decoders = map[string]decoder{
 	MediaCSPReport:    {mediaType: MediaCSPReport, decode: decodeCSPReport},
 	MediaTLSRPTJSON:   {mediaType: MediaTLSRPTJSON, decode: decodeTLSRPT},
 	MediaTLSRPTGzip:   {mediaType: MediaTLSRPTGzip, decode: decodeTLSRPT},
+	MediaExpectCT:     {mediaType: MediaExpectCT, decode: decodeExpectCT},
+	MediaHPKP:         {mediaType: MediaHPKP, decode: decodeHPKP},
 }
 
 // MediaType returns the bare media type of a Content-Type header value, with
@@ -190,7 +192,7 @@ var legacyCSPKeys = map[string]string{
 	"blocked-uri":         fieldBlockedURL,
 	"source-file":         fieldSourceFile,
 	"original-policy":     "originalPolicy",
-	"disposition":         "disposition",
+	"disposition":         fieldDisposition,
 	"status-code":         "statusCode",
 	"script-sample":       "scriptSample",
 }
@@ -289,5 +291,74 @@ func decodeTLSRPT(body []byte, limits guard.Limits, _ bool) ([]Report, error) {
 		sessions[result] = count
 	}
 	report.Body["failing-sessions"] = sessions
+	return []Report{report}, nil
+}
+
+// expectCTEnvelope is the RFC 9163 body: one expect-ct-report object carrying
+// the hostname that failed the CT compliance check and both chains.
+type expectCTEnvelope struct {
+	ExpectCT map[string]any `json:"expect-ct-report"`
+}
+
+// decodeExpectCT reads one RFC 9163 violation report. The hostname is the
+// record's subject: a report without one names nothing to select on.
+func decodeExpectCT(body []byte, limits guard.Limits, keepQuery bool) ([]Report, error) {
+	var env expectCTEnvelope
+	if err := guard.Decode(body, &env, limits); err != nil {
+		return nil, err
+	}
+	if len(env.ExpectCT) == 0 {
+		return nil, fmt.Errorf("%w: expect-ct-report is empty", ErrNoReports)
+	}
+	host, _ := env.ExpectCT["hostname"].(string)
+	if host == "" {
+		return nil, fmt.Errorf("%w: expect-ct-report has no hostname", ErrInvalidReport)
+	}
+	report := Report{
+		Type:   typeExpectCT,
+		Domain: DomainBrowser,
+		Source: SourceExpectCT,
+		URL:    host,
+		Body:   env.ExpectCT,
+	}
+	if !keepQuery {
+		redactBody(report.Body, keepQuery)
+	}
+	return []Report{report}, nil
+}
+
+// hpkpKeys is the full RFC 7469 report shape. application/json carries
+// anything, so the shape is the discriminator: only a body with every key is
+// a pin validation failure, the rest is not ours to read.
+var hpkpKeys = []string{
+	"date-time", "hostname", "port", "effective-expiration-date",
+	"include-subdomains", "noted-hostname", "served-certificate-chain",
+	"validated-certificate-chain", "known-pins",
+}
+
+// decodeHPKP reads one RFC 7469 pin validation failure. HPKP registered no
+// media type of its own, so this runs on plain application/json and admits
+// only the exact report shape.
+func decodeHPKP(body []byte, limits guard.Limits, keepQuery bool) ([]Report, error) {
+	var reportBody map[string]any
+	if err := guard.Decode(body, &reportBody, limits); err != nil {
+		return nil, err
+	}
+	for _, key := range hpkpKeys {
+		if _, ok := reportBody[key]; !ok {
+			return nil, fmt.Errorf("%w: json is not a pin validation failure", ErrInvalidReport)
+		}
+	}
+	host, _ := reportBody["hostname"].(string)
+	report := Report{
+		Type:   typeHPKP,
+		Domain: DomainBrowser,
+		Source: SourceHPKP,
+		URL:    host,
+		Body:   reportBody,
+	}
+	if !keepQuery {
+		redactBody(report.Body, keepQuery)
+	}
 	return []Report{report}, nil
 }

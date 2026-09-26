@@ -25,6 +25,36 @@ OpenTelemetry relay for browser and mail security reports
 - A public intake, guarded by default
 - One intake for every report a site can send
 
+### Inherited from B19 / Ubuntu
+
+- Persistent APT cache across builds
+- Service process management with log routing (b19-exec)
+- Cached artifact downloads with integrity verification
+- Timed command execution with failure reporting (b19-run)
+- Run-once initialization (bootstrap.d)
+- Modular build hooks (build.d)
+- Automatic CPU count detection
+- Declarative dependency management (b19-deps)
+- Pluggable startup system (entrypoint.d)
+- Feature toggles for all subsystems
+- Built-in health monitoring (healthcheck.d)
+- Multilingual shell output (b19-i18n)
+- Image lineage tracking
+- Structured, level-filtered logging (b19-log)
+- Non-root container by default
+- Air-gapped / offline build and runtime support
+- Runtime overlay injection
+- Reproducible base image (pinned by digest)
+- Port validation
+- Unified lifecycle runner family
+- Docker secrets auto-loading
+- Interactive shell hooks
+- Graceful signal handling
+- Jinja2 configuration templates (minijinja-cli)
+- Built-in test framework (test.d)
+- Pre-installed utility tools
+- XDG Base Directory paths
+
 See [FEATURES.md](FEATURES.md) for the full list.
 
 ## What this provides

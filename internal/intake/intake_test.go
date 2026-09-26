@@ -21,6 +21,16 @@ func testLimits() guard.Limits {
 	return guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 512}
 }
 
+// testSiteURL and testBlockedURL are the sites every fixture reports on, and
+// sevInfo/sevWarn the severities assertions compare against. Constants, not
+// literals, because the linter counts repetitions even in tests.
+const (
+	testSiteURL    = "https://beta.dbuho.me/"
+	testBlockedURL = "https://evil.example/x.js"
+	sevInfo        = "INFO"
+	sevWarn        = "WARN"
+)
+
 // legacyCSPBody is a real report-uri body: kebab-case keys inside "csp-report".
 const legacyCSPBody = `{"csp-report":{"document-uri":"https://beta.dbuho.me/?token=secret#frag",` +
 	`"violated-directive":"script-src","blocked-uri":"https://evil.example/x.js?a=b",` +
@@ -44,7 +54,7 @@ func TestLegacyCSPReportNormalisesToReportingAPI(t *testing.T) {
 	if report.Source != SourceCSP {
 		t.Errorf("source = %q, want %q", report.Source, SourceCSP)
 	}
-	if report.URL != "https://beta.dbuho.me/" {
+	if report.URL != testSiteURL {
 		t.Errorf("url = %q, want the query and fragment dropped", report.URL)
 	}
 	if report.Body[fieldEffectiveDirective] != "script-src" {
@@ -53,7 +63,7 @@ func TestLegacyCSPReportNormalisesToReportingAPI(t *testing.T) {
 	if _, legacy := report.Body["document-uri"]; legacy {
 		t.Error("the kebab-case key survived normalisation")
 	}
-	if report.Body[fieldBlockedURL] != "https://evil.example/x.js" {
+	if report.Body[fieldBlockedURL] != testBlockedURL {
 		t.Errorf("blockedURL = %v, want the query dropped", report.Body["blockedURL"])
 	}
 }
@@ -63,9 +73,9 @@ func TestReportingAPIBatchOfThreeBecomesThreeReports(t *testing.T) {
 	  {"type":"csp-violation","age":5,"url":"https://beta.dbuho.me/?t=1",
 	   "body":{"documentURL":"https://beta.dbuho.me/","effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}},
 	  {"type":"deprecation","age":60,"url":"https://beta.dbuho.me/legacy",
-	   "body":{"documentURL":"https://beta.dbuho.me/legacy"}},
+	   "body":{"id":"websql","message":"WebSQL is deprecated","sourceFile":"https://beta.dbuho.me/legacy"}},
 	  {"type":"network-error","age":120,"url":"https://beta.dbuho.me/api",
-	   "body":{"documentURL":"https://beta.dbuho.me/api","phase":"dns","type":"dns_error"}}
+	   "body":{"phase":"dns","type":"dns.address_changed","method":"GET","protocol":"http/1.1","referrer":"https://beta.dbuho.me/","sampling-fraction":1.0,"server-ip":"93.184.216.34","status-code":0,"elapsed-time":12}}
 	]`)
 	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
 	if err != nil {
@@ -77,20 +87,20 @@ func TestReportingAPIBatchOfThreeBecomesThreeReports(t *testing.T) {
 	if reports[0].Age != 5 || reports[1].Age != 60 || reports[2].Age != 120 {
 		t.Errorf("ages = %d/%d/%d, want 5/60/120", reports[0].Age, reports[1].Age, reports[2].Age)
 	}
-	if reports[1].Severity() != "INFO" {
+	if reports[1].Severity() != sevInfo {
 		t.Errorf("deprecation severity = %q, want INFO", reports[1].Severity())
 	}
-	if reports[2].Severity() != "WARN" {
+	if reports[2].Severity() != sevWarn {
 		t.Errorf("network-error severity = %q, want WARN", reports[2].Severity())
 	}
-	if reports[0].URL != "https://beta.dbuho.me/" {
+	if reports[0].URL != testSiteURL {
 		t.Errorf("url = %q, want the query dropped", reports[0].URL)
 	}
 }
 
 func TestNELReportIsAcceptedAsNetworkError(t *testing.T) {
 	body := []byte(`[{"type":"network-error","age":10,"url":"https://beta.dbuho.me/img.png",
-	  "body":{"documentURL":"https://beta.dbuho.me/img.png","phase":"connection"}}]`)
+	  "body":{"phase":"connection","type":"tcp.timed_out","method":"GET","protocol":"h2","referrer":"https://beta.dbuho.me/","sampling-fraction":1.0,"server-ip":"93.184.216.34","status-code":0,"elapsed-time":210}}]`)
 	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
@@ -252,7 +262,7 @@ func TestSchemaAcceptsUnknownTypeWithoutBody(t *testing.T) {
 
 func TestKeepQueryPreservesTheURL(t *testing.T) {
 	body := []byte(`[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/?t=1",
-	  "body":{"documentURL":"https://beta.dbuho.me/?t=1"}}]`)
+	  "body":{"id":"websql","message":"WebSQL is deprecated","documentURL":"https://beta.dbuho.me/?t=1"}}]`)
 	reports, err := Decode(MediaReportingAPI, body, testLimits(), true)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
@@ -268,9 +278,9 @@ func TestKeepQueryPreservesTheURL(t *testing.T) {
 func TestReportingAPIBatchOverTheArrayCapIsRejected(t *testing.T) {
 	limits := guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 2}
 	body := []byte(`[
-	  {"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}},
-	  {"type":"deprecation","age":2,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}},
-	  {"type":"deprecation","age":3,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}}
+	  {"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}},
+	  {"type":"deprecation","age":2,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}},
+	  {"type":"deprecation","age":3,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}}
 	]`)
 	if _, err := Decode(MediaReportingAPI, body, limits, false); !errors.Is(err, guard.ErrArrayTooLong) {
 		t.Fatalf("err = %v, want ErrArrayTooLong on the request path", err)
@@ -376,12 +386,209 @@ func TestRedactBodyRecursesIntoNesting(t *testing.T) {
 	}
 	redactBody(body, false)
 	nested := body["nested"].(map[string]any)
-	if nested["blockedURL"] != "https://evil.example/x.js" {
+	if nested["blockedURL"] != testBlockedURL {
 		t.Errorf("nested blockedURL = %v, want the query dropped", nested["blockedURL"])
 	}
 	list := body["list"].([]any)
 	first := list[0].(map[string]any)
 	if first["documentURL"] != "https://beta.dbuho.me/a" {
 		t.Errorf("listed documentURL = %v, want the query dropped", first["documentURL"])
+	}
+}
+
+func TestCOOPReportIsAccepted(t *testing.T) {
+	body := []byte(`[{"type":"coop","age":3,"url":"https://beta.dbuho.me/",
+	  "body":{"disposition":"enforce","effectivePolicy":"same-origin","type":"navigation-to-response",
+	  "referrer":"https://beta.dbuho.me/?token=secret"}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Type != typeCOOP {
+		t.Errorf("type = %q, want coop", reports[0].Type)
+	}
+	if reports[0].Severity() != sevWarn {
+		t.Errorf("severity = %q, want WARN for an isolation break", reports[0].Severity())
+	}
+	if reports[0].Body["referrer"] != testSiteURL {
+		t.Errorf("referrer = %v, want the query dropped", reports[0].Body["referrer"])
+	}
+}
+
+func TestCOOPRejectsMissingPolicy(t *testing.T) {
+	body := []byte(`[{"type":"coop","age":3,"url":"https://beta.dbuho.me/",
+	  "body":{"disposition":"enforce","type":"navigation-to-response"}}]`)
+	if _, err := Decode(MediaReportingAPI, body, testLimits(), false); !errors.Is(err, ErrInvalidReport) {
+		t.Fatalf("err = %v, want ErrInvalidReport", err)
+	}
+}
+
+func TestCOEPRealBodyHasNoDocumentURL(t *testing.T) {
+	body := []byte(`[{"type":"coep","age":8,"url":"https://beta.dbuho.me/",
+	  "body":{"type":"corp","blockedURL":"https://evil.example/x.js?a=b","destination":"script","disposition":"enforce"}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Type != typeCOEP {
+		t.Errorf("type = %q, want coep", reports[0].Type)
+	}
+	if reports[0].Body["blockedURL"] != testBlockedURL {
+		t.Errorf("blockedURL = %v, want the query dropped", reports[0].Body["blockedURL"])
+	}
+}
+
+func TestDeprecationRealBodyIsAccepted(t *testing.T) {
+	body := []byte(`[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/",
+	  "body":{"id":"websql","message":"WebSQL is deprecated","sourceFile":"https://beta.dbuho.me/a.js?token=secret"}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Severity() != sevInfo {
+		t.Errorf("severity = %q, want INFO", reports[0].Severity())
+	}
+	if reports[0].Body[fieldSourceFile] != "https://beta.dbuho.me/a.js" {
+		t.Errorf("sourceFile = %v, want the query dropped", reports[0].Body[fieldSourceFile])
+	}
+}
+
+func TestInterventionReportIsAccepted(t *testing.T) {
+	body := []byte(`[{"type":"intervention","age":1,"url":"https://beta.dbuho.me/",
+	  "body":{"id":"audio-no-gesture","message":"A play() request was interrupted"}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Severity() != sevInfo {
+		t.Errorf("severity = %q, want INFO", reports[0].Severity())
+	}
+}
+
+func TestCrashReportPassesThrough(t *testing.T) {
+	body := []byte(`[{"type":"crash","age":1,"url":"https://beta.dbuho.me/","body":{"reason":"oom"}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Type != typeCrash || reports[0].Severity() != sevWarn {
+		t.Errorf("type/severity = %q/%q, want crash/WARN", reports[0].Type, reports[0].Severity())
+	}
+	empty := []byte(`[{"type":"crash","age":1,"url":"https://beta.dbuho.me/","body":{}}]`)
+	if _, err := Decode(MediaReportingAPI, empty, testLimits(), false); err != nil {
+		t.Fatalf("a crash without a reason was rejected: %v", err)
+	}
+}
+
+func TestIntegrityViolationIsAccepted(t *testing.T) {
+	body := []byte(`[{"type":"integrity-violation","age":2,"url":"https://beta.dbuho.me/",
+	  "body":{"documentURL":"https://beta.dbuho.me/","blockedURL":"https://cdn.example/lib.js","destination":"script","reportOnly":false}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Severity() != sevWarn {
+		t.Errorf("severity = %q, want WARN", reports[0].Severity())
+	}
+}
+
+func TestPermissionsPolicyRealBodyIsAccepted(t *testing.T) {
+	body := []byte(`[{"type":"permissions-policy-violation","age":1,"url":"https://beta.dbuho.me/",
+	  "body":{"policyId":"geolocation","disposition":"enforce","message":"Geolocation access denied",
+	  "sourceFile":"https://beta.dbuho.me/a.js","lineNumber":7}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Severity() != sevWarn {
+		t.Errorf("severity = %q, want WARN", reports[0].Severity())
+	}
+}
+
+func TestFeaturePolicyLegacyBodyIsAccepted(t *testing.T) {
+	body := []byte(`[{"type":"feature-policy-violation","age":1,"url":"https://beta.dbuho.me/",
+	  "body":{"featureId":"geolocation","disposition":"enforce"}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Type != typeFeaturePolicy {
+		t.Errorf("type = %q, want the Firefox spelling kept", reports[0].Type)
+	}
+}
+
+func TestDocumentPolicyViolationIsAccepted(t *testing.T) {
+	body := []byte(`[{"type":"document-policy-violation","age":1,"url":"https://beta.dbuho.me/",
+	  "body":{"policyId":"document-write","disposition":"enforce","message":"document.write blocked"}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Severity() != sevWarn {
+		t.Errorf("severity = %q, want WARN", reports[0].Severity())
+	}
+}
+
+func TestPotentialPermissionsPolicyViolationIsAccepted(t *testing.T) {
+	body := []byte(`[{"type":"potential-permissions-policy-violation","age":1,"url":"https://beta.dbuho.me/",
+	  "body":{"policyId":"fullscreen","disposition":"report","message":"Would block",
+	  "allowAttribute":"fullscreen","srcAttribute":"https://frames.example/?token=secret"}}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if reports[0].Body["srcAttribute"] != "https://frames.example/" {
+		t.Errorf("srcAttribute = %v, want the query dropped", reports[0].Body["srcAttribute"])
+	}
+}
+
+func TestExpectCTReportIsAccepted(t *testing.T) {
+	body := []byte(`{"expect-ct-report":{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.dbuho.me",
+	  "port":443,"effective-expiration-date":"2026-10-26T00:00:00Z",
+	  "served-certificate-chain":["PEM1"],"validated-certificate-chain":["PEM1"]}}`)
+	reports, err := Decode(MediaExpectCT, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("got %d reports, want 1", len(reports))
+	}
+	report := reports[0]
+	if report.Type != typeExpectCT || report.Source != SourceExpectCT {
+		t.Errorf("type/source = %q/%q, want expect-ct/expect-ct", report.Type, report.Source)
+	}
+	if report.URL != "beta.dbuho.me" || report.Severity() != sevWarn {
+		t.Errorf("url/severity = %q/%q, want the hostname and WARN", report.URL, report.Severity())
+	}
+}
+
+func TestExpectCTRejectsMissingHostname(t *testing.T) {
+	body := []byte(`{"expect-ct-report":{"date-time":"2026-09-26T00:00:00Z",
+	  "served-certificate-chain":["PEM1"]}}`)
+	if _, err := Decode(MediaExpectCT, body, testLimits(), false); !errors.Is(err, ErrInvalidReport) {
+		t.Fatalf("err = %v, want ErrInvalidReport", err)
+	}
+}
+
+func TestHPKPReportIsAccepted(t *testing.T) {
+	body := []byte(`{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.dbuho.me","port":443,
+	  "effective-expiration-date":"2026-10-26T00:00:00Z","include-subdomains":false,
+	  "noted-hostname":"beta.dbuho.me","served-certificate-chain":["PEM1"],
+	  "validated-certificate-chain":["PEM1"],"known-pins":["pin-sha256=\"abcd\""]}`)
+	reports, err := Decode(MediaHPKP, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("got %d reports, want 1", len(reports))
+	}
+	if reports[0].Type != typeHPKP || reports[0].URL != "beta.dbuho.me" {
+		t.Errorf("type/url = %q/%q, want hpkp and the noted host", reports[0].Type, reports[0].URL)
+	}
+}
+
+func TestHPKPRejectsForeignJSON(t *testing.T) {
+	if _, err := Decode(MediaHPKP, []byte(`{"hello":"world"}`), testLimits(), false); !errors.Is(err, ErrInvalidReport) {
+		t.Fatalf("err = %v, want ErrInvalidReport for non-pin JSON", err)
 	}
 }

@@ -75,9 +75,11 @@ ENV M6E_VERSION=${M6E_VERSION}                \
     REPORT_RELAY_TRUST_PROXY=false            \
     REPORT_RELAY_EXPORT_TIMEOUT=10s           \
     REPORT_RELAY_SHUTDOWN_TIMEOUT=15s         \
-    REPORT_RELAY_ENABLE_REPORTING_API=true    \
-    REPORT_RELAY_ENABLE_CSP=true              \
-    REPORT_RELAY_ENABLE_TLSRPT=true
+     REPORT_RELAY_ENABLE_REPORTING_API=true    \
+     REPORT_RELAY_ENABLE_CSP=true              \
+     REPORT_RELAY_ENABLE_TLSRPT=true           \
+     REPORT_RELAY_ENABLE_EXPECT_CT=true        \
+     REPORT_RELAY_ENABLE_HPKP=true
 
 COPY --chown=${B19_UID}:${B19_GID} .container/base/ /
 COPY --from=damian-buho-report-relay-builder /export /

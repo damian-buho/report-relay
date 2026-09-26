@@ -55,6 +55,8 @@ func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready 
 		intake.MediaCSPReport:    s.intake(intake.SourceCSP, cfg.CSPOn),
 		intake.MediaTLSRPTJSON:   s.intake(intake.SourceTLSRPT, cfg.TLSRPTOn),
 		intake.MediaTLSRPTGzip:   s.intake(intake.SourceTLSRPT, cfg.TLSRPTOn),
+		intake.MediaExpectCT:     s.intake(intake.SourceExpectCT, cfg.ExpectCTOn),
+		intake.MediaHPKP:         s.intake(intake.SourceHPKP, cfg.HPKPOn),
 	}
 	return s
 }
