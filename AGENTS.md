@@ -33,6 +33,8 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - `REPORT_RELAY_ENABLE_REPORTING_API=true`, `REPORT_RELAY_ENABLE_CSP=true`, `REPORT_RELAY_ENABLE_TLSRPT=true`
 - `REPORT_RELAY_ENABLE_EXPECT_CT=true`, `REPORT_RELAY_ENABLE_HPKP=true`
 - The exporter reads the standard `OTEL_EXPORTER_OTLP_*` variables itself
+- With no OTLP endpoint named, records go to stdout as one JSON line each and
+  `/readyz` stays green; `telemetry.OTLPConfigured` owns that switch
 
 ## Contracts with the fleet
 

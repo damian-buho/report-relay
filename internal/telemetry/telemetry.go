@@ -65,8 +65,12 @@ type Emitter struct {
 const exportFailThreshold = 3
 
 // New builds the log and metric pipelines from the standard OTEL_* environment
-// plus the operator's own REPORT_RELAY_* limits.
+// plus the operator's own REPORT_RELAY_* limits. Without an OTLP endpoint the
+// records go to standard output instead, so the relay runs with no collector.
 func New(ctx context.Context, cfg config.Config) (*Emitter, error) {
+	if !OTLPConfigured() {
+		return NewWithExporters(cfg, newStdoutExporter(), sdkmetric.NewManualReader())
+	}
 	logExp, err := otlploghttp.New(ctx, otlploghttp.WithRetry(retryConfig(cfg)))
 	if err != nil {
 		return nil, fmt.Errorf("otlp log exporter: %w", err)

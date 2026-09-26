@@ -56,9 +56,12 @@ func run() int {
 		log.Error("telemetry pipeline failed to start", "error", err)
 		return 1
 	}
+	if !telemetry.OTLPConfigured() {
+		log.Info("otlp endpoint unset, writing records to stdout")
+	}
 
 	readTimeout, writeTimeout, idleTimeout := server.Timeouts()
-	srv := server.New(cfg, log, emitter, func() bool { return exporterConfigured() && emitter.ExportHealthy() })
+	srv := server.New(cfg, log, emitter, func() bool { return !telemetry.OTLPConfigured() || emitter.ExportHealthy() })
 	intakeSrv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
 		Handler:           srv.IntakeHandler(),
@@ -134,14 +137,4 @@ func serve(srv *http.Server, name string, errs chan<- error) {
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		errs <- fmt.Errorf("%s listener: %w", name, err)
 	}
-}
-
-// exporterConfigured reports whether the OTLP endpoint is named. It is half of
-// what /readyz answers, the other half being the emitter's own export health:
-// a relay with nowhere to export, or one whose exports keep failing, is
-// accepting reports it will drop, and saying so is the difference between a
-// useful probe and a green light over a black hole.
-func exporterConfigured() bool {
-	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
-		os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != ""
 }

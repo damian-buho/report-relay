@@ -5,14 +5,18 @@
 package telemetry
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"kiota.ch/damian-buho/report-relay/internal/config"
+	"kiota.ch/damian-buho/report-relay/internal/intake"
 )
 
 // stubExporter accepts every batch, so the emitter's own accounting is what a
@@ -111,3 +115,71 @@ func (f *failingExporter) Export(context.Context, []sdklog.Record) error {
 }
 func (f *failingExporter) Shutdown(context.Context) error   { return nil }
 func (f *failingExporter) ForceFlush(context.Context) error { return nil }
+
+func TestOTLPConfiguredReadsTheEndpointVariables(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+	if OTLPConfigured() {
+		t.Fatal("no endpoint named, yet the OTLP path was selected")
+	}
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://o9s-alloy:4318")
+	if !OTLPConfigured() {
+		t.Fatal("a named endpoint did not select the OTLP path")
+	}
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://o9s-alloy:4318")
+	if !OTLPConfigured() {
+		t.Fatal("a named logs endpoint did not select the OTLP path")
+	}
+}
+
+func TestNewWithoutEndpointEmitsToWriter(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+	var buf bytes.Buffer
+	em, err := NewWithExporters(testConfig(), &stdoutExporter{w: &buf}, sdkmetric.NewManualReader())
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	report := intake.Report{
+		Type:   "csp-violation",
+		Domain: intake.DomainBrowser,
+		Source: intake.SourceReportingAPI,
+		URL:    "https://beta.dbuho.me/marker",
+		Body:   map[string]any{"effectiveDirective": "script-src"},
+	}
+	if !em.Emit(context.Background(), report) {
+		t.Fatal("the stdout emitter refused a report with room in the queue")
+	}
+	if err := em.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	line := strings.TrimSpace(buf.String())
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(line), &decoded); err != nil {
+		t.Fatalf("stdout line is not JSON: %v", err)
+	}
+	if decoded["event_name"] != "csp-violation" {
+		t.Errorf("event_name = %v, want the report type", decoded["event_name"])
+	}
+	if decoded["event.domain"] != intake.DomainBrowser {
+		t.Errorf("event.domain = %v, want the report domain", decoded["event.domain"])
+	}
+	if decoded["resource.service.name"] != "report-relay" {
+		t.Errorf("resource.service.name = %v, want the configured service", decoded["resource.service.name"])
+	}
+}
+
+func TestNewFallsBackToStdoutWithoutEndpoint(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+	em, err := New(context.Background(), testConfig())
+	if err != nil {
+		t.Fatalf("New without an endpoint: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	if !em.ExportHealthy() {
+		t.Fatal("a fresh stdout emitter reads unhealthy")
+	}
+}
