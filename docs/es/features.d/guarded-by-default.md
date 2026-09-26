@@ -12,5 +12,6 @@ SPDX-License-Identifier: MIT
 - Se eliminan las cadenas de consulta y los fragmentos de las URL que trae un informe, porque una URL de informe suele llevar un token; un conmutador los conserva cuando necesitas el valor completo.
 - Nunca se exporta nada sin validar: un informe que el servicio no puede leer se cuenta con su motivo y se descarta.
 - Se responde al preflight CORS de los métodos de envío, con lista blanca de orígenes opcional; sin configurar vale cualquier origen, porque el envío es entre orígenes por naturaleza.
+- Detrás de un proxy inverso, la cadena reenviada solo se acepta desde redes proxy de confianza (`REPORT_RELAY_TRUST_PROXY` más `REPORT_RELAY_TRUSTED_PROXIES`), así una llamada directa no puede elegir su propio cubo de límite forjando una cabecera.
 
 <!-- textlint-enable -->

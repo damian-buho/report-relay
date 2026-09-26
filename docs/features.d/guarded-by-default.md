@@ -10,3 +10,4 @@ SPDX-License-Identifier: MIT
 - Query strings and fragments are stripped from the URLs a report carries, because a report URL routinely holds a token; a switch keeps them when you need the whole value.
 - Nothing unvalidated is ever exported: a report the service cannot read is counted with its reason and dropped.
 - The CORS preflight is answered for the reporting methods, with an optional origin allow-list; unset means any origin, because reporting is cross-origin by nature.
+- Behind a reverse proxy, the forwarded chain is honored only from trusted proxy networks (`REPORT_RELAY_TRUST_PROXY` plus `REPORT_RELAY_TRUSTED_PROXIES`), so a direct caller cannot pick its own rate-limit bucket by forging a header.
