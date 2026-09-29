@@ -141,7 +141,7 @@ See [use-healthcheck.d](../how-to/use-healthcheck.d.md) for the check list, slot
 
 - The container runs as a non-root user (`ubuntu`, UID/GID 1000) with all runtime files owned by that user.
 - A two-stage build separates root-level system installation from user-level runtime setup.
-- User identity is configurable at build time.
+- User identity is configurable at build time, and an opt-in root start remaps it to the host user so bind mounts keep their ownership.
 
 ### Air-gapped / offline build and runtime support
 
