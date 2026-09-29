@@ -32,7 +32,7 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - `REPORT_RELAY_TRUSTED_PROXIES=""` — comma CIDRs or bare IPs honored as proxy peers; with the flag on but this empty, forwarded headers stay ignored, and a bad entry refuses to start
 - `REPORT_RELAY_EXPORT_TIMEOUT=10s`, `REPORT_RELAY_SHUTDOWN_TIMEOUT=15s`
 - `REPORT_RELAY_ENABLE_REPORTING_API=true`, `REPORT_RELAY_ENABLE_CSP=true`, `REPORT_RELAY_ENABLE_TLSRPT=true`
-- `REPORT_RELAY_ENABLE_EXPECT_CT=true`, `REPORT_RELAY_ENABLE_HPKP=true`
+- `REPORT_RELAY_ENABLE_EXPECT_CT=true`, `REPORT_RELAY_ENABLE_HPKP=true`, `REPORT_RELAY_ENABLE_IODEF=true`
 - The exporter reads the standard `OTEL_EXPORTER_OTLP_*` variables itself
 - With no OTLP endpoint named, records go to stdout as one JSON line each and
   `/readyz` stays green; `telemetry.OTLPConfigured` owns that switch
@@ -55,6 +55,11 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - Startup validation refuses `burst < 1`, `rps <= 0` and ports outside 1025–65535.
 - TLS-RPT yields one record per failure detail (individual) or per result type
   (aggregate); that mapping is the decided answer to the spec’s open question.
+- IODEF (RFC 7970, the CAA `iodef` property of RFC 8659 §4.4) arrives as XML on
+  `application/iodef+xml`, `application/xml` or `text/xml` (the RFC 6546 wire
+  type); one `Incident` becomes one record of type `iodef` in domain `cert`,
+  keyed by `IncidentID`, with DTD declarations refused and the JSON depth and
+  array caps reused as the XML depth and incident caps.
 
 ## Test
 

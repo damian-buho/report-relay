@@ -41,6 +41,7 @@ type Config struct {
 	TLSRPTOn             bool
 	ExpectCTOn           bool
 	HPKPOn               bool
+	IODEFOn              bool
 	QueueSize            int
 	BatchTimeout         time.Duration
 	ExportInitialBackoff time.Duration
@@ -73,6 +74,7 @@ func Load() Config {
 		TLSRPTOn:          envBoolOr("REPORT_RELAY_ENABLE_TLSRPT", true),
 		ExpectCTOn:        envBoolOr("REPORT_RELAY_ENABLE_EXPECT_CT", true),
 		HPKPOn:            envBoolOr("REPORT_RELAY_ENABLE_HPKP", true),
+		IODEFOn:           envBoolOr("REPORT_RELAY_ENABLE_IODEF", true),
 		QueueSize:         envIntOr("REPORT_RELAY_QUEUE_SIZE", 2048),
 		BatchTimeout:      envDurationOr("REPORT_RELAY_BATCH_TIMEOUT", 5*time.Second),
 
@@ -113,6 +115,7 @@ func (c Config) Log(log *slog.Logger) {
 		"tlsrpt", c.TLSRPTOn,
 		"expect_ct", c.ExpectCTOn,
 		"hpkp", c.HPKPOn,
+		"iodef", c.IODEFOn,
 	)
 }
 

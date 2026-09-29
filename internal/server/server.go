@@ -64,6 +64,9 @@ func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready 
 		intake.MediaTLSRPTGzip:   s.intake(intake.SourceTLSRPT, cfg.TLSRPTOn),
 		intake.MediaExpectCT:     s.intake(intake.SourceExpectCT, cfg.ExpectCTOn),
 		intake.MediaHPKP:         s.intake(intake.SourceHPKP, cfg.HPKPOn),
+		intake.MediaIODEF:        s.intake(intake.SourceIODEF, cfg.IODEFOn),
+		intake.MediaXML:          s.intake(intake.SourceIODEF, cfg.IODEFOn),
+		intake.MediaTextXML:      s.intake(intake.SourceIODEF, cfg.IODEFOn),
 	}
 	return s
 }

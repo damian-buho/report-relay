@@ -39,7 +39,7 @@ func severity(reportType string) string {
 	case typeCSPViolation, typeCOEP, typeCOEPViolation, typeNetworkError,
 		typeCOOP, typeCrash, typeIntegrityViolation, typeDocumentPolicy,
 		typePermissions, typeFeaturePolicy, typeExpectCT, typeHPKP,
-		"attribution-reporting":
+		typeIodef, "attribution-reporting":
 		return "WARN"
 	default:
 		return "INFO"
@@ -48,7 +48,7 @@ func severity(reportType string) string {
 
 // Severity returns the log severity for this report.
 func (r Report) Severity() string {
-	if r.Domain == DomainMail {
+	if r.Domain == DomainMail || r.Domain == DomainCert {
 		return "WARN"
 	}
 	return severity(r.Type)
@@ -61,12 +61,14 @@ const (
 	SourceTLSRPT       = "tlsrpt"
 	SourceExpectCT     = "expect-ct"
 	SourceHPKP         = "hpkp"
+	SourceIODEF        = "iodef"
 )
 
 // The reporting domains, as they appear in the event.domain attribute.
 const (
 	DomainBrowser = "browser"
 	DomainMail    = "mail"
+	DomainCert    = "cert"
 )
 
 // The report type names and body field names the decoders and the schema hooks
@@ -88,6 +90,7 @@ const (
 	typeDocumentPolicy       = "document-policy-violation"
 	typeExpectCT             = "expect-ct"
 	typeHPKP                 = "hpkp"
+	typeIodef                = "iodef"
 
 	fieldDocumentURL        = "documentURL"
 	fieldBlockedURL         = "blockedURL"

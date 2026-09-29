@@ -29,6 +29,9 @@ var decoders = map[string]decoder{
 	MediaTLSRPTGzip:   {mediaType: MediaTLSRPTGzip, decode: decodeTLSRPT},
 	MediaExpectCT:     {mediaType: MediaExpectCT, decode: decodeExpectCT},
 	MediaHPKP:         {mediaType: MediaHPKP, decode: decodeHPKP},
+	MediaIODEF:        {mediaType: MediaIODEF, decode: decodeIODEF},
+	MediaXML:          {mediaType: MediaXML, decode: decodeIODEF},
+	MediaTextXML:      {mediaType: MediaTextXML, decode: decodeIODEF},
 }
 
 // MediaType returns the bare media type of a Content-Type header value, with

@@ -74,6 +74,7 @@ func testConfig() config.Config {
 		TLSRPTOn:       true,
 		ExpectCTOn:     true,
 		HPKPOn:         true,
+		IODEFOn:        true,
 	}
 }
 
@@ -564,6 +565,33 @@ func TestForeignJSONIsNotAPinFailure(t *testing.T) {
 	rec := post(t, srv.IntakeHandler(), intake.MediaHPKP, `{"hello":"world"}`)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422 for JSON outside the pin shape", rec.Code)
+	}
+}
+
+func TestIODEFPostBecomesOneRecord(t *testing.T) {
+	srv, sink, sinkEmitter := testServer(t, testConfig())
+	body := `<IODEF-Document version="2.00" xmlns="urn:ietf:params:xml:ns:iodef-2.0">` +
+		`<Incident purpose="reporting"><IncidentID name="ca1.example.net">caa-1</IncidentID>` +
+		`<Node><NodeName>beta.dbuho.me</NodeName></Node></Incident></IODEF-Document>`
+	if rec := post(t, srv.IntakeHandler(), intake.MediaIODEF, body); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	records := sink.Records(t, sinkEmitter)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	assertAttribute(t, records[0], "event.name", "iodef")
+	assertAttribute(t, records[0], "event.domain", "cert")
+	assertAttribute(t, records[0], "report.source", "iodef")
+}
+
+func TestDisabledIODEFAnswersServiceUnavailable(t *testing.T) {
+	cfg := testConfig()
+	cfg.IODEFOn = false
+	srv, _, _ := testServer(t, cfg)
+	rec := post(t, srv.IntakeHandler(), intake.MediaIODEF, `<IODEF-Document/>`)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
 	}
 }
 

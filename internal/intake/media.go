@@ -20,6 +20,9 @@ const (
 	MediaTLSRPTGzip   = "application/tlsrpt+gzip"
 	MediaExpectCT     = "application/expect-ct-report+json"
 	MediaHPKP         = "application/json"
+	MediaIODEF        = "application/iodef+xml"
+	MediaXML          = "application/xml"
+	MediaTextXML      = "text/xml"
 )
 
 // ErrUnsupportedType is returned for a content type no enabled intake claims.
