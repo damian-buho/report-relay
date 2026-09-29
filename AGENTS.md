@@ -60,6 +60,8 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
   type); one `Incident` becomes one record of type `iodef` in domain `cert`,
   keyed by `IncidentID`, with DTD declarations refused and the JSON depth and
   array caps reused as the XML depth and incident caps.
+- Pointing a CAA `iodef` property at the relay is documented in
+  `docs/caa-iodef.md` (translations beside it in `docs/es` and `docs/uk`).
 
 ## Test
 
