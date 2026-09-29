@@ -23,8 +23,6 @@ includes:
   - .makefile/b19/images/ubuntu.yaml
   - .makefile/container/traits/readme-service.yaml
   - .makefile/library/languages/go.yaml
-  - https://kiota.ch/damian-buho/metadata/raw/branch/main/forge/codeberg.yaml
-  - https://kiota.ch/damian-buho/metadata/raw/branch/main/forge/github.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/include.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/registry/dockerhub.yaml
 keywords:

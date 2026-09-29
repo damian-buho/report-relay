@@ -16,7 +16,6 @@
 .fetch
 .forgejo
 .git
-.github
 .makefile
 .secrets
 CITATION.cff
