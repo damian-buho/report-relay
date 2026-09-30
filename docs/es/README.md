@@ -25,7 +25,7 @@ Report Relay acepta los informes de seguridad que envían los navegadores y los 
 - Una entrada pública, protegida por defecto
 - Una entrada para todos los informes que puede enviar un sitio
 
-También hereda las características de Heredado de B19 / Ubuntu; consulta [FEATURES.md](FEATURES.md) para ver la lista completa.
+También hereda las características de B19 / Ubuntu; consulta [Características](FEATURES.md) para ver la lista completa.
 
 ## Qué entrega este proyecto
 

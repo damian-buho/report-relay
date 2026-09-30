@@ -23,7 +23,7 @@ Report Relay accepts the security reports browsers and mail servers send — Rep
 - A public intake, guarded by default
 - One intake for every report a site can send
 
-It also inherits the features of Inherited from B19 / Ubuntu — see [FEATURES.md](FEATURES.md) for the full list.
+It also inherits the features of B19 / Ubuntu — see [Features](docs/FEATURES.md) for the full list.
 
 ## What this provides
 
