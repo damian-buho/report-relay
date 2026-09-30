@@ -116,9 +116,11 @@ org:
         ports:
           - port: 8080
             name: intake
+            protocol: tcp
           - port: 8081
             name: admin
             path: /healthz
+            protocol: tcp
     images:
       # The pipeline runs the real collector and store, so the intake is proved
       # end to end rather than against a stub. Declared here and not in a
