@@ -30,6 +30,7 @@ jobs:
     if: (github.event_name == 'workflow_dispatch') || (github.event_name == 'schedule')
     env:
       M6E_IMAGE_PUBLISHED: kiota.ch/damian-buho/report-relay:latest
+      CI_IGNORE_VULNERABILITIES: ${{ vars.CI_IGNORE_VULNERABILITIES }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -44,6 +45,7 @@ jobs:
           run: auto-grype image
           env: |-
             M6E_IMAGE_PUBLISHED=kiota.ch/damian-buho/report-relay:latest
+            CI_IGNORE_VULNERABILITIES=${{ vars.CI_IGNORE_VULNERABILITIES }}
             M6E_SHARED_CACHE=Y
           mounts: /app/data/ci-cache/grype-db:/app/.cache/grype:rw
       - name: trivy-scan-registry
@@ -55,6 +57,7 @@ jobs:
           run: auto-trivy image
           env: |-
             M6E_IMAGE_PUBLISHED=kiota.ch/damian-buho/report-relay:latest
+            CI_IGNORE_VULNERABILITIES=${{ vars.CI_IGNORE_VULNERABILITIES }}
             M6E_SHARED_CACHE=Y
             TRIVY_CACHE_BACKEND
           mounts: /app/data/ci-cache/trivy-db:/app/.cache/trivy:rw
@@ -74,6 +77,7 @@ jobs:
     runs-on: docker
     env:
       OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY: /app/.cache/osv
+      CI_IGNORE_VULNERABILITIES: ${{ vars.CI_IGNORE_VULNERABILITIES }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -87,6 +91,7 @@ jobs:
           version: ${{ env.M6E_TAG }}
           run: auto-grype
           env: |-
+            CI_IGNORE_VULNERABILITIES=${{ vars.CI_IGNORE_VULNERABILITIES }}
             M6E_SHARED_CACHE=Y
           mounts: /app/data/ci-cache/grype-db:/app/.cache/grype:rw
       - name: osv-scanner-scan-source
@@ -98,6 +103,7 @@ jobs:
           run: auto-osv-scanner --offline-vulnerabilities
           env: |-
             OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/app/.cache/osv
+            CI_IGNORE_VULNERABILITIES=${{ vars.CI_IGNORE_VULNERABILITIES }}
             M6E_SHARED_CACHE=Y
           mounts: /app/data/ci-cache/osv-db:/app/.cache/osv:rw
       - name: trivy-scan-source
@@ -108,6 +114,7 @@ jobs:
           version: ${{ env.M6E_TAG }}
           run: auto-trivy fs
           env: |-
+            CI_IGNORE_VULNERABILITIES=${{ vars.CI_IGNORE_VULNERABILITIES }}
             M6E_SHARED_CACHE=Y
             TRIVY_CACHE_BACKEND
           mounts: /app/data/ci-cache/trivy-db:/app/.cache/trivy:rw
