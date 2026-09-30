@@ -106,6 +106,19 @@ org:
     architecture:
       - amd64
       - arm64
+    artifacts:
+      relay:
+        kind: service
+        summary:
+          en: Report intake and health endpoints
+          es: Recepción de informes y endpoints de salud
+          uk: Приймання звітів і ендпоінти стану
+        ports:
+          - port: 8080
+            name: intake
+          - port: 8081
+            name: admin
+            path: /healthz
     images:
       # The pipeline runs the real collector and store, so the intake is proved
       # end to end rather than against a stub. Declared here and not in a
