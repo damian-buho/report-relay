@@ -16,9 +16,9 @@
 .fetch
 .forgejo
 .git
-.github
 .makefile
 .secrets
+.worktrees
 CITATION.cff
 CODEOWNERS
 LICENSE

@@ -18,6 +18,7 @@
 .git
 .makefile
 .secrets
+.worktrees
 CITATION.cff
 CODEOWNERS
 LICENSE
