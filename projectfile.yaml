@@ -25,6 +25,7 @@ includes:
   - .makefile/library/languages/go.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/include.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/registry/dockerhub.yaml
+  - https://kiota.ch/damian-buho/metadata/raw/branch/main/traits/personal-image.yaml
 keywords:
   - opentelemetry
   - otlp
@@ -149,17 +150,6 @@ org:
       fragments:
         parents:
           - url: ssh://git@kiota.ch/b19/ubuntu.git
-    image:
-      org: damian-buho
-      flatpath: ${name}
-    forge:
-      # The account IS the org, so the GitHub repository is the bare name
-      org: damian-buho
-      flatpath: ${name}
-    # The org is the GHCR account, so the artifact drops the repeat
-    sinks:
-      ghcr:
-        selfref: ghcr.io/damian-buho/${name}:${tag}
     operating-system:
       - linux
     status: experimental
