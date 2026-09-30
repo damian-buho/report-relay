@@ -10,9 +10,9 @@ pf-cli-managed: yes
 
 # Report Relay
 
-Relé de OpenTelemetry para informes de seguridad del navegador y del correo
+Report Relay acepta los informes de seguridad que envían los navegadores y los servidores de correo — lotes de Reporting API, cuerpos heredados de report-uri de CSP, registros de errores de red e informes SMTP TLS — y emite un registro de log de OpenTelemetry por informe, de modo que aterrizan en la pila existente de Loki, Tempo y Grafana en lugar de un recolector distinto por tipo de informe.
 
-[![Stand with Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/badges/StandWithUkraine.svg)](https://damian-buho.github.io/support-ukraine/) [![Projectfile inside](https://badges.kiota.ch/static/v1?label=projectfile&message=inside&labelColor=0d0d0d&color=8c6723&style=flat-square)](https://projectfile.org) [![License](https://badges.kiota.ch/static/v1?label=license&message=MIT&color=1e5913&style=flat-square)](LICENSE) [![Commit style](https://badges.kiota.ch/static/v1?label=commits&message=conventional%20v1.0.0&color=1877aa&style=flat-square)](https://www.conventionalcommits.org/es/v1.0.0/) ![Workflow](https://badges.kiota.ch/static/v1?label=workflow&message=git-flow&color=1877aa&style=flat-square) [![Versioning](https://badges.kiota.ch/static/v1?label=versioning&message=semantic%20v2.0.0&color=1877aa&style=flat-square)](https://semver.org/lang/es/) [![PRs welcome](https://badges.kiota.ch/static/v1?label=PRs&message=welcome&color=1e5913&style=flat-square)](CONTRIBUTING.md) [![Citation](https://badges.kiota.ch/static/v1?label=citation&message=cff&color=1877aa&style=flat-square)](CITATION.cff) [![REUSE compliance](https://api.reuse.software/badge/codeberg.org/damian-buho/report-relay)](https://api.reuse.software/info/codeberg.org/damian-buho/report-relay)
+[![Stand with Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/badges/StandWithUkraine.svg)](https://damian-buho.github.io/support-ukraine/) [![Projectfile inside](https://badges.kiota.ch/static/v1?label=projectfile&message=inside&labelColor=0d0d0d&color=8c6723&style=flat-square)](https://projectfile.org) [![License](https://badges.kiota.ch/static/v1?label=license&message=MIT&color=1e5913&style=flat-square)](LICENSE) [![Commit style](https://badges.kiota.ch/static/v1?label=commits&message=conventional%20v1.0.0&color=1877aa&style=flat-square)](https://www.conventionalcommits.org/es/v1.0.0/) ![Workflow](https://badges.kiota.ch/static/v1?label=workflow&message=git-flow&color=1877aa&style=flat-square) [![Versioning](https://badges.kiota.ch/static/v1?label=versioning&message=semantic%20v2.0.0&color=1877aa&style=flat-square)](https://semver.org/lang/es/) [![Citation](https://badges.kiota.ch/static/v1?label=citation&message=cff&color=1877aa&style=flat-square)](CITATION.cff) [![REUSE compliance](https://api.reuse.software/badge/codeberg.org/damian-buho/report-relay)](https://api.reuse.software/info/codeberg.org/damian-buho/report-relay)
 
 ![Project status](https://badges.kiota.ch/static/v1?label=status&message=experimental&color=1d63ed&style=flat-square) [![Last commit on kiota.ch](https://badges.kiota.ch/gitea/last-commit/damian-buho/report-relay?gitea_url=https://kiota.ch&label=last%20commit%20on%20kiota.ch&style=flat-square)](https://kiota.ch/damian-buho/report-relay)
 
@@ -25,62 +25,28 @@ Relé de OpenTelemetry para informes de seguridad del navegador y del correo
 - Una entrada pública, protegida por defecto
 - Una entrada para todos los informes que puede enviar un sitio
 
-### Heredado de B19 / Ubuntu
-
-- Caché APT persistente entre compilaciones
-- Gestión de procesos de servicio con enrutado de logs (b19-exec)
-- Descargas de artefactos con caché y verificación de integridad (b19-fetch)
-- Ejecución de comandos temporizada con informe de fallos (b19-run)
-- Inicialización de una sola vez (bootstrap.d)
-- Hooks de compilación modulares (build.d)
-- Detección automática del número de CPUs (NUMPROCS)
-- Gestión declarativa de dependencias (b19-deps)
-- Sistema de arranque conectable (entrypoint.d)
-- Conmutadores de funcionalidades para todos los subsistemas
-- Monitorización de estado integrada (healthcheck.d)
-- Salida de shell multilingüe (b19-i18n)
-- Seguimiento del linaje de la imagen
-- Logging estructurado con filtro por nivel (b19-log)
-- Contenedor sin privilegios de root por defecto
-- Soporte de compilación y runtime aislados de internet (air-gapped/offline)
-- Inyección de overlays en runtime
-- Imagen base reproducible (fijada por digest)
-- Validación de puertos
-- Familia unificada de runners del ciclo de vida
-- Autocarga de secretos de Docker (secrets)
-- Hooks de shell interactivo (shell.d)
-- Gestión elegante de señales
-- Plantillas de configuración Jinja2 (minijinja-cli)
-- Framework de tests integrado (test.d)
-- Herramientas de utilidad preinstaladas
-- Rutas XDG Base Directory
-
-Consulta [FEATURES.md](FEATURES.md) para ver la lista completa.
+También hereda las características de Heredado de B19 / Ubuntu; consulta [FEATURES.md](FEATURES.md) para ver la lista completa.
 
 ## Qué entrega este proyecto
 
-- **Imagen de contenedor** `docker.io/damianbuho/report-relay:latest`
-
-## Plataformas admitidas
-
-- `linux/amd64`
-- `linux/arm64`
+- **Imagen de contenedor** `damianbuho/report-relay:latest`
+- **Servicio** `relay` — escucha en `8080 (intake)`, `8081 (admin)` — Recepción de informes y endpoints de salud
 
 ## Instalación
 
 Descarga la imagen de contenedor publicada:
 
-### Descargar de DockerHub
+### Descargar de DockerHub — linux/amd64
 
 ```sh
-docker pull docker.io/damianbuho/report-relay:latest
+docker pull damianbuho/report-relay:latest
 ```
 
 Las versiones estables también publican las etiquetas `X.Y.Z`, `X.Y` y `X`: descarga el nivel de precisión que quieras fijar.
 
 Si los registros anteriores no están disponibles, descarga desde el origen:
 
-### Descargar de Kiota
+### Descargar de Kiota — linux/amd64
 
 ```sh
 docker pull kiota.ch/damian-buho/report-relay:latest
@@ -88,15 +54,29 @@ docker pull kiota.ch/damian-buho/report-relay:latest
 
 ## Uso
 
-Levanta la pila localmente:
+Ejecuta el servicio en segundo plano, publicando sus puertos:
+
+### Desde DockerHub
 
 ```sh
-make dc-up
-make dc-logs
-make dc-down
+docker run --detach --publish 8080:8080 --publish 8081:8081 damianbuho/report-relay:latest
 ```
 
 ## Compilación
+
+Clona el repositorio con sus submódulos:
+
+```sh
+git clone --recurse-submodules https://codeberg.org/damian-buho/report-relay report-relay && cd report-relay
+```
+
+Construye la imagen de contenedor en local:
+
+```sh
+make container-build
+```
+
+- [Referencia del Makefile](../how-to/MAKEFILE.md)
 
 Ejecuta `make` sin argumentos para el destino predeterminado; ejecuta `make help` para listar todos los destinos.
 
@@ -104,10 +84,10 @@ Para el bucle de desarrollo local, `make dev-container` levanta el dev-container
 
 Puntos de entrada de la canalización:
 
-- `make analyze` — Run the heavy analysis sweep (mutation testing, benchmarks)
-- `make audited` — Re-scan the pinned dependencies and published artifacts for new vulnerabilities
-- `make check-outdated` — Report every pinned dependency that lags upstream
-- `make ready-to-publish` — Run the pseudo-CI pipeline locally — build, test and scan, without publishing
+- `make analyze` — Ejecuta el análisis pesado (pruebas de mutación, benchmarks)
+- `make audited` — Vuelve a escanear las dependencias fijadas y los artefactos publicados en busca de vulnerabilidades nuevas
+- `make check-outdated` — Informa de cada dependencia fijada que va por detrás de su versión upstream
+- `make ready-to-publish` — Ejecuta localmente el pipeline pseudo-CI — compila, prueba y escanea, sin publicar
 
 ## Políticas
 
