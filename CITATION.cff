@@ -23,7 +23,7 @@ contact:
     email: damian.buho@proton.me
     orcid: https://orcid.org/0009-0004-8579-7633
     website: https://dbuho.me
-version: 0.5.0
+version: 0.6.0
 keywords:
   - opentelemetry
   - otlp
