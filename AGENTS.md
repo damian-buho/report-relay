@@ -15,6 +15,7 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - Builder: `b19/go`; the whole Go application lives in the project directory
 - Final Base: `b19/ubuntu:resolute`
 - Arch: amd64, arm64
+- Binary: `dist/report-relay-linux-{amd64,arm64,riscv64}`, built by `.scripts/build-binaries.sh`, released with `.scripts/gh-release.sh` and torrented as one bundle
 - **No upstream version pin** — the source is local, versioned by the projectfile
 - Reports are an OPEN list: a type this build has never seen still arrives, because
   the Reporting API envelope is decoded without typing the body. Per-type validation

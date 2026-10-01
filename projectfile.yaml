@@ -27,6 +27,8 @@ includes:
   - .makefile/b19/traits/signed-images.yaml
   - .makefile/container/traits/readme-service.yaml
   - .makefile/library/languages/go.yaml
+  - .makefile/library/traits/go-binary.yaml
+  - .makefile/library/traits/torrented-binaries.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/include.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/registry/dockerhub.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/traits/personal-image.yaml
@@ -126,6 +128,10 @@ org:
             name: admin
             path: /healthz
             protocol: tcp
+      go-binary:
+        command: report-relay
+        kind: binary
+        path: dist/report-relay
     images:
       # The pipeline runs the real collector and store, so the intake is proved
       # end to end rather than against a stub. Declared here and not in a
@@ -150,6 +156,34 @@ org:
       env:
         O9S_ALLOY_IMAGE: ""
         O9S_LOKI_IMAGE: ""
+      nodes:
+        binaries-are-built:
+          matrix:
+            axes:
+              GOARCH:
+                - amd64
+                - arm64
+                - riscv64
+              GOOS:
+                - linux
+        gsa:
+          matrix:
+            axes:
+              GOARCH:
+                - amd64
+                - arm64
+                - riscv64
+              GOOS:
+                - linux
+        binaries-are-released:
+          matrix:
+            axes:
+              GOARCH:
+                - amd64
+                - arm64
+                - riscv64
+              GOOS:
+                - linux
     conventions:
       fragments:
         parents:

@@ -33,6 +33,8 @@ name: published
         default: "info"
       DESTINATION_DOCKER_REGISTRY:
         type: string
+      GOPROXY:
+        type: string
       LANG:
         type: string
       M6E_APT_CACHE_HOST:
@@ -50,15 +52,142 @@ name: published
 env:
   M6E_TAG: ${{ vars.BASE_IMAGE_DEFAULT_VERSION || 'latest' }}
   M6E_RUN_SCOPE: ${{ github.run_id }}-${{ github.run_attempt }}
+  GOPROXY: https://kiota.ch/api/packages/projectfile/go,direct
   O9S_ALLOY_IMAGE: ${{ vars.O9S_ALLOY_IMAGE || format('{0}/o9s/alloy:{1}', vars.SOURCE_DOCKER_REGISTRY || 'kiota.ch', vars.BASE_IMAGE_DEFAULT_VERSION || 'latest') }}
   O9S_LOKI_IMAGE: ${{ vars.O9S_LOKI_IMAGE || format('{0}/o9s/loki:{1}', vars.SOURCE_DOCKER_REGISTRY || 'kiota.ch', vars.BASE_IMAGE_DEFAULT_VERSION || 'latest') }}
   PF_CLI_IMAGE: ${{ vars.PF_CLI_IMAGE || format('{0}/projectfile/cli:{1}', vars.SOURCE_DOCKER_REGISTRY || 'kiota.ch', vars.BASE_IMAGE_DEFAULT_VERSION || 'latest') }}
 jobs:
   artifacts-are-ok:
     runs-on: docker
-    needs: ["image-is-ready", "inputs-are-ok"]
+    needs: ["binaries-are-ok", "image-is-ready", "inputs-are-ok"]
     steps:
       - run: echo artifacts-are-ok
+  binaries-are-built:
+    runs-on: docker
+    needs: ["inputs-are-ok"]
+    strategy:
+      matrix:
+        GOARCH: ["amd64", "arm64", "riscv64"]
+        GOOS: ["linux"]
+    env:
+      GOARCH: ${{ matrix.GOARCH }}
+      GOOS: ${{ matrix.GOOS }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+          persist-credentials: false
+      - name: build-binaries
+        if: (vars.CI_ONLY_GOARCH == '' || contains(format(',{0},', vars.CI_ONLY_GOARCH), format(',{0},', matrix.GOARCH))) && (vars.CI_ONLY_GOOS == '' || contains(format(',{0},', vars.CI_ONLY_GOOS), format(',{0},', matrix.GOOS))) && vars.CI_SKIP_BINARIES_ARE_BUILT != 'true' && vars.CI_SKIP_BUILD_BINARIES != 'true'
+        uses: projectfile/actions/run-tool@v1
+        with:
+          image: ${{ vars.GO_TOOL_IMAGE || format('{0}/b19/go', vars.SOURCE_DOCKER_REGISTRY || 'kiota.ch') }}
+          version: ${{ env.M6E_TAG }}
+          run: .scripts/build-binaries.sh
+          env: |-
+            GOARCH=${{ matrix.GOARCH }}
+            GOOS=${{ matrix.GOOS }}
+            GITHUB_REF_NAME
+            GOPROXY
+          mounts: /app/data/ci-cache/go:/app/.cache/go:rw
+      - uses: actions/upload-artifact@v3
+        if: (vars.CI_ONLY_GOARCH == '' || contains(format(',{0},', vars.CI_ONLY_GOARCH), format(',{0},', matrix.GOARCH))) && (vars.CI_ONLY_GOOS == '' || contains(format(',{0},', vars.CI_ONLY_GOOS), format(',{0},', matrix.GOOS))) && vars.CI_SKIP_BINARIES_ARE_BUILT != 'true' && vars.CI_SKIP_BUILD_BINARIES != 'true'
+        with:
+          name: build-binaries-${{ matrix.GOARCH }}-${{ matrix.GOOS }}-${{ github.run_id }}
+          path: dist
+  binaries-are-ok:
+    runs-on: docker
+    needs: ["binaries-are-built", "gsa"]
+    steps:
+      - run: echo binaries-are-ok
+  binaries-are-released:
+    runs-on: docker
+    needs: ["binaries-are-torrented", "image-is-attested", "image-is-signed"]
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      matrix:
+        GOARCH: ["amd64", "arm64", "riscv64"]
+        GOOS: ["linux"]
+    env:
+      GOARCH: ${{ matrix.GOARCH }}
+      GOOS: ${{ matrix.GOOS }}
+      RELEASE_SIDECAR_DIR: dist/torrents
+      FORGEJO_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/download-artifact@v3
+        if: (vars.CI_ONLY_GOARCH == '' || contains(format(',{0},', vars.CI_ONLY_GOARCH), format(',{0},', matrix.GOARCH))) && (vars.CI_ONLY_GOOS == '' || contains(format(',{0},', vars.CI_ONLY_GOOS), format(',{0},', matrix.GOOS))) && vars.CI_SKIP_BINARIES_ARE_TORRENTED != 'true' && vars.CI_SKIP_TORRENT_CREATE != 'true'
+        with:
+          name: torrent-create-${{ github.run_id }}
+          path: dist
+      - name: forgejo-release
+        if: (vars.CI_ONLY_GOARCH == '' || contains(format(',{0},', vars.CI_ONLY_GOARCH), format(',{0},', matrix.GOARCH))) && (vars.CI_ONLY_GOOS == '' || contains(format(',{0},', vars.CI_ONLY_GOOS), format(',{0},', matrix.GOOS))) && vars.CI_SKIP_BINARIES_ARE_RELEASED != 'true' && vars.CI_SKIP_FORGEJO_RELEASE != 'true'
+        uses: projectfile/actions/forgejo-release@v1
+        with:
+          version: ${{ github.ref_name }}
+          # The unsuffixed binary path resolved from org.projectfile.artifacts (the single
+          # kind=binary entry). The action suffixes it per cell (→ <path>-${GOOS}-${GOARCH})
+          # to find the binary the build→consumer download edge restored to the workspace.
+          release-asset-path: dist/report-relay
+  binaries-are-torrented:
+    runs-on: docker
+    needs: ["binaries-are-ok"]
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      M6E_TORRENT_OUT_DIR: dist/torrents
+      M6E_TORRENT_TRACKERS: https://tracker.kiota.ch/announce udp://tracker.kiota.ch:6969 wss://tracker.kiota.ch
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/download-artifact@v3
+        if: vars.CI_SKIP_BINARIES_ARE_BUILT != 'true' && vars.CI_SKIP_BUILD_BINARIES != 'true'
+        with:
+          name: build-binaries-amd64-linux-${{ github.run_id }}
+          path: dist
+      - uses: actions/download-artifact@v3
+        if: vars.CI_SKIP_BINARIES_ARE_BUILT != 'true' && vars.CI_SKIP_BUILD_BINARIES != 'true'
+        with:
+          name: build-binaries-arm64-linux-${{ github.run_id }}
+          path: dist
+      - uses: actions/download-artifact@v3
+        if: vars.CI_SKIP_BINARIES_ARE_BUILT != 'true' && vars.CI_SKIP_BUILD_BINARIES != 'true'
+        with:
+          name: build-binaries-riscv64-linux-${{ github.run_id }}
+          path: dist
+      - name: torrent-create
+        if: vars.CI_SKIP_BINARIES_ARE_TORRENTED != 'true' && vars.CI_SKIP_TORRENT_CREATE != 'true'
+        uses: projectfile/actions/run-tool@v1
+        with:
+          image: ${{ vars.R8E_RQBIT_IMAGE || format('{0}/r8e/rqbit', vars.SOURCE_DOCKER_REGISTRY || 'kiota.ch') }}
+          version: ${{ env.M6E_TAG }}
+          run: .makefile/core/scripts/torrent.sh create --bundle dist/report-relay
+          env: |-
+            M6E_TORRENT_OUT_DIR=dist/torrents
+            M6E_TORRENT_TRACKERS=https://tracker.kiota.ch/announce udp://tracker.kiota.ch:6969 wss://tracker.kiota.ch
+            GITHUB_REF_NAME
+            GITHUB_REPOSITORY
+            GITHUB_SERVER_URL
+      - uses: actions/upload-artifact@v3
+        if: vars.CI_SKIP_BINARIES_ARE_TORRENTED != 'true' && vars.CI_SKIP_TORRENT_CREATE != 'true'
+        with:
+          name: torrent-create-${{ github.run_id }}
+          path: dist
+      - name: torrent-seed
+        if: vars.CI_SKIP_BINARIES_ARE_TORRENTED != 'true' && vars.CI_SKIP_TORRENT_SEED != 'true'
+        uses: projectfile/actions/run-tool@v1
+        with:
+          image: ${{ vars.R8E_RQBIT_IMAGE || format('{0}/r8e/rqbit', vars.SOURCE_DOCKER_REGISTRY || 'kiota.ch') }}
+          version: ${{ env.M6E_TAG }}
+          run: .makefile/core/scripts/torrent.sh seed --bundle dist/report-relay
+          env: |-
+            GITHUB_REF_NAME
+            GITHUB_REPOSITORY
+          mounts: /app/data/ci-cache/rqbit-seed:/seed:rw
   container-is-ok:
     runs-on: docker
     needs: ["images-are-ok"]
@@ -164,6 +293,36 @@ jobs:
     runs-on: docker
     steps:
       - run: echo fetched
+  gsa:
+    runs-on: docker
+    needs: ["binaries-are-built"]
+    strategy:
+      matrix:
+        GOARCH: ["amd64", "arm64", "riscv64"]
+        GOOS: ["linux"]
+    env:
+      GOARCH: ${{ matrix.GOARCH }}
+      GOOS: ${{ matrix.GOOS }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/download-artifact@v3
+        if: (vars.CI_ONLY_GOARCH == '' || contains(format(',{0},', vars.CI_ONLY_GOARCH), format(',{0},', matrix.GOARCH))) && (vars.CI_ONLY_GOOS == '' || contains(format(',{0},', vars.CI_ONLY_GOOS), format(',{0},', matrix.GOOS))) && vars.CI_SKIP_BINARIES_ARE_BUILT != 'true' && vars.CI_SKIP_BUILD_BINARIES != 'true'
+        with:
+          name: build-binaries-${{ matrix.GOARCH }}-${{ matrix.GOOS }}-${{ github.run_id }}
+          path: dist
+      - name: auto-gsa
+        if: (vars.CI_ONLY_GOARCH == '' || contains(format(',{0},', vars.CI_ONLY_GOARCH), format(',{0},', matrix.GOARCH))) && (vars.CI_ONLY_GOOS == '' || contains(format(',{0},', vars.CI_ONLY_GOOS), format(',{0},', matrix.GOOS))) && vars.CI_SKIP_GSA != 'true' && vars.CI_SKIP_AUTO_GSA != 'true'
+        uses: projectfile/actions/run-tool@v1
+        with:
+          image: ${{ vars.D9T_GO_TOOLS_IMAGE || format('{0}/d9t/go-tools', vars.SOURCE_DOCKER_REGISTRY || 'kiota.ch') }}
+          version: ${{ env.M6E_TAG }}
+          run: .makefile/library/scripts/gsa-cell.sh dist/report-relay
+          env: |-
+            GOARCH=${{ matrix.GOARCH }}
+            GOOS=${{ matrix.GOOS }}
   image-has-sbom:
     runs-on: docker
     needs: ["image-is-built"]
@@ -219,6 +378,21 @@ jobs:
         with:
           submodules: true
           persist-credentials: false
+      - uses: actions/download-artifact@v3
+        if: (vars.CI_ONLY_M6E_ARCH == '' || contains(format(',{0},', vars.CI_ONLY_M6E_ARCH), format(',{0},', matrix.M6E_ARCH))) && (vars.CI_ONLY_M6E_PUBLISH_SINK == '' || contains(format(',{0},', vars.CI_ONLY_M6E_PUBLISH_SINK), format(',{0},', matrix.M6E_PUBLISH_SINK))) && vars.CI_SKIP_BINARIES_ARE_BUILT != 'true' && vars.CI_SKIP_BUILD_BINARIES != 'true'
+        with:
+          name: build-binaries-amd64-linux-${{ github.run_id }}
+          path: dist
+      - uses: actions/download-artifact@v3
+        if: (vars.CI_ONLY_M6E_ARCH == '' || contains(format(',{0},', vars.CI_ONLY_M6E_ARCH), format(',{0},', matrix.M6E_ARCH))) && (vars.CI_ONLY_M6E_PUBLISH_SINK == '' || contains(format(',{0},', vars.CI_ONLY_M6E_PUBLISH_SINK), format(',{0},', matrix.M6E_PUBLISH_SINK))) && vars.CI_SKIP_BINARIES_ARE_BUILT != 'true' && vars.CI_SKIP_BUILD_BINARIES != 'true'
+        with:
+          name: build-binaries-arm64-linux-${{ github.run_id }}
+          path: dist
+      - uses: actions/download-artifact@v3
+        if: (vars.CI_ONLY_M6E_ARCH == '' || contains(format(',{0},', vars.CI_ONLY_M6E_ARCH), format(',{0},', matrix.M6E_ARCH))) && (vars.CI_ONLY_M6E_PUBLISH_SINK == '' || contains(format(',{0},', vars.CI_ONLY_M6E_PUBLISH_SINK), format(',{0},', matrix.M6E_PUBLISH_SINK))) && vars.CI_SKIP_BINARIES_ARE_BUILT != 'true' && vars.CI_SKIP_BUILD_BINARIES != 'true'
+        with:
+          name: build-binaries-riscv64-linux-${{ github.run_id }}
+          path: dist
       - uses: actions/download-artifact@v3
         if: (vars.CI_ONLY_M6E_ARCH == '' || contains(format(',{0},', vars.CI_ONLY_M6E_ARCH), format(',{0},', matrix.M6E_ARCH))) && (vars.CI_ONLY_M6E_PUBLISH_SINK == '' || contains(format(',{0},', vars.CI_ONLY_M6E_PUBLISH_SINK), format(',{0},', matrix.M6E_PUBLISH_SINK))) && (vars.CI_ONLY_M6E_ARCH == '' || contains(format(',{0},', vars.CI_ONLY_M6E_ARCH), ',amd64,')) && vars.CI_SKIP_IMAGE_IS_BUILT != 'true' && vars.CI_SKIP_CONTAINER_BUILD != 'true'
         with:
@@ -316,6 +490,7 @@ jobs:
       B19_UBUNTU_SERIES: ${{ inputs.B19_UBUNTU_SERIES || vars.B19_UBUNTU_SERIES || 'resolute' }}
       B19_VERBOSITY: ${{ inputs.B19_VERBOSITY || vars.B19_VERBOSITY || 'info' }}
       DESTINATION_DOCKER_REGISTRY: ${{ inputs.DESTINATION_DOCKER_REGISTRY || vars.DESTINATION_DOCKER_REGISTRY }}
+      GOPROXY: ${{ inputs.GOPROXY || vars.GOPROXY }}
       LANG: ${{ inputs.LANG || vars.LANG }}
       M6E_APT_CACHE_HOST: ${{ inputs.M6E_APT_CACHE_HOST || vars.M6E_APT_CACHE_HOST }}
       M6E_APT_CACHE_PORT: ${{ inputs.M6E_APT_CACHE_PORT || vars.M6E_APT_CACHE_PORT }}
@@ -344,6 +519,7 @@ jobs:
             B19_UBUNTU_SERIES=${{ inputs.B19_UBUNTU_SERIES || vars.B19_UBUNTU_SERIES || 'resolute' }}
             B19_VERBOSITY=${{ inputs.B19_VERBOSITY || vars.B19_VERBOSITY || 'info' }}
             DESTINATION_DOCKER_REGISTRY=${{ inputs.DESTINATION_DOCKER_REGISTRY || vars.DESTINATION_DOCKER_REGISTRY }}
+            GOPROXY=${{ inputs.GOPROXY || vars.GOPROXY }}
             LANG=${{ inputs.LANG || vars.LANG }}
             M6E_APT_CACHE_HOST=${{ inputs.M6E_APT_CACHE_HOST || vars.M6E_APT_CACHE_HOST }}
             M6E_APT_CACHE_PORT=${{ inputs.M6E_APT_CACHE_PORT || vars.M6E_APT_CACHE_PORT }}
@@ -469,7 +645,7 @@ jobs:
       - run: echo publish-image
   published:
     runs-on: docker
-    needs: ["image-has-sbom", "image-is-attested", "image-is-signed", "publish-image", "ready-to-publish"]
+    needs: ["binaries-are-released", "image-has-sbom", "image-is-attested", "image-is-signed", "publish-image", "ready-to-publish"]
     steps:
       - run: echo published
   ready-to-publish:

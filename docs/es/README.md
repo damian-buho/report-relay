@@ -29,14 +29,17 @@ También hereda las características de B19 / Ubuntu; consulta [Características
 
 ## Qué entrega este proyecto
 
+- **Ejecutable** `report-relay` — comando `report-relay`
 - **Imagen de contenedor** `damianbuho/report-relay:latest`
 - **Servicio** `relay` — escucha en `8080 (intake)`, `8081 (admin)` — Recepción de informes y endpoints de salud
 
 ## Instalación
 
+### Imagen de contenedor
+
 Descarga la imagen de contenedor publicada:
 
-### Descargar de DockerHub — linux/amd64
+#### Descargar de DockerHub — linux/amd64
 
 ```sh
 docker pull damianbuho/report-relay:latest
@@ -46,11 +49,22 @@ Las versiones estables también publican las etiquetas `X.Y.Z`, `X.Y` y `X`: des
 
 Si los registros anteriores no están disponibles, descarga desde el origen:
 
-### Descargar de Kiota — linux/amd64
+#### Descargar de Kiota — linux/amd64
 
 ```sh
 docker pull kiota.ch/damian-buho/report-relay:latest
 ```
+
+### Binario precompilado
+
+Descarga el binario precompilado para tu plataforma desde la última versión en GitHub:
+
+```sh
+curl --fail --location --output report-relay https://github.com/damian-buho/report-relay/releases/latest/download/report-relay-$(uname -s | tr A-Z a-z)-$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/) && chmod +x report-relay
+./report-relay --help
+```
+
+Publicado para: `linux/amd64`, `linux/arm64`, `linux/riscv64`
 
 ## Uso
 

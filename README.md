@@ -27,14 +27,17 @@ It also inherits the features of B19 / Ubuntu — see [Features](docs/FEATURES.m
 
 ## What this provides
 
+- **Executable** `report-relay` — command `report-relay`
 - **Container image** `damianbuho/report-relay:latest`
 - **Service** `relay` — listens on `8080 (intake)`, `8081 (admin)` — Report intake and health endpoints
 
 ## Installation
 
+### Container image
+
 Pull the published container image:
 
-### Pull from DockerHub — linux/amd64
+#### Pull from DockerHub — linux/amd64
 
 ```sh
 docker pull damianbuho/report-relay:latest
@@ -44,11 +47,22 @@ Stable releases also publish `X.Y.Z`, `X.Y` and `X` tags — pull the precision 
 
 If the registries above are unreachable, pull from the origin instead:
 
-### Pull from Kiota — linux/amd64
+#### Pull from Kiota — linux/amd64
 
 ```sh
 docker pull kiota.ch/damian-buho/report-relay:latest
 ```
+
+### Prebuilt binary
+
+Download the prebuilt binary for your platform from the latest GitHub release:
+
+```sh
+curl --fail --location --output report-relay https://github.com/damian-buho/report-relay/releases/latest/download/report-relay-$(uname -s | tr A-Z a-z)-$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/) && chmod +x report-relay
+./report-relay --help
+```
+
+Published for: `linux/amd64`, `linux/arm64`, `linux/riscv64`
 
 ## Usage
 

@@ -24,6 +24,7 @@ SPDX-License-Identifier: MIT
 - Sin ningún punto de envío `OTEL_EXPORTER_OTLP_*` configurado, cada registro va a la salida estándar como JSON, así que el relé funciona sin ningún recolector.
 - El servicio informa sobre sí mismo por el mismo canal: informes recibidos, aceptados y descartados, cada descarte etiquetado con el motivo que lo causó.
 - Los registros estructurados en JSON llevan la variable detrás de cada decisión, así que un operador lee por qué se descartó un informe en la propia línea de log.
+- Se publica como binario precompilado para Linux en amd64, arm64 y riscv64 junto a la imagen, así que funciona en un equipo sin entorno de contenedores.
 
 ### Una entrada pública, protegida por defecto
 

@@ -29,14 +29,17 @@ Report Relay приймає звіти безпеки, які надсилают
 
 ## Що надає цей проєкт
 
+- **Виконуваний файл** `report-relay` — команда `report-relay`
 - **Образ контейнера** `damianbuho/report-relay:latest`
 - **Служба** `relay` — слухає на `8080 (intake)`, `8081 (admin)` — Приймання звітів і ендпоінти стану
 
 ## Встановлення
 
+### Образ контейнера
+
 Завантажте опублікований образ контейнера:
 
-### Завантажити з DockerHub — linux/amd64
+#### Завантажити з DockerHub — linux/amd64
 
 ```sh
 docker pull damianbuho/report-relay:latest
@@ -46,11 +49,22 @@ docker pull damianbuho/report-relay:latest
 
 Якщо наведені вище реєстри недоступні, завантажте з джерела:
 
-### Завантажити з Kiota — linux/amd64
+#### Завантажити з Kiota — linux/amd64
 
 ```sh
 docker pull kiota.ch/damian-buho/report-relay:latest
 ```
+
+### Готовий бінарний файл
+
+Завантажте готовий бінарний файл для своєї платформи з останнього випуску на GitHub:
+
+```sh
+curl --fail --location --output report-relay https://github.com/damian-buho/report-relay/releases/latest/download/report-relay-$(uname -s | tr A-Z a-z)-$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/) && chmod +x report-relay
+./report-relay --help
+```
+
+Опубліковано для: `linux/amd64`, `linux/arm64`, `linux/riscv64`
 
 ## Використання
 

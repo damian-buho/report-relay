@@ -22,6 +22,7 @@ SPDX-License-Identifier: MIT
 - With no `OTEL_EXPORTER_OTLP_*` endpoint set, every record goes to standard output as JSON, so the relay runs with no collector at all.
 - The service reports on itself over the same channel: reports received, accepted and dropped, each drop labelled with the reason that caused it.
 - Structured JSON logs carry the variable behind every decision, so an operator reads why a report was dropped from the log line itself.
+- Ships as a prebuilt Linux binary for amd64, arm64 and riscv64 beside the image, so it runs on a host with no container runtime.
 
 ### A public intake, guarded by default
 
