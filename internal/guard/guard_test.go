@@ -47,12 +47,13 @@ func TestReadBodyBoundsTheDecompressedSize(t *testing.T) {
 	if err := zw.Close(); err != nil {
 		t.Fatalf("gzip close: %v", err)
 	}
-	if buf.Len() > 2048 {
-		t.Fatalf("the fixture did not compress: %d bytes", buf.Len())
+	const limit = 64 << 10
+	if buf.Len() >= limit {
+		t.Fatalf("the fixture did not compress under the %d-byte cap: %d bytes", limit, buf.Len())
 	}
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(buf.Bytes()))
 	req.Header.Set("Content-Encoding", "gzip")
-	if _, err := ReadBody(req, 1024); !errors.Is(err, ErrTooLarge) {
+	if _, err := ReadBody(req, limit); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("err = %v, want ErrTooLarge for a gzip bomb", err)
 	}
 }
