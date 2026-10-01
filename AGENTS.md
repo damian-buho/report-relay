@@ -13,7 +13,7 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 ## Key facts
 
 - Builder: `b19/go`; the whole Go application lives in the project directory
-- Final Base: `b19/ubuntu/resolute`
+- Final Base: `b19/ubuntu:resolute`
 - Arch: amd64, arm64
 - **No upstream version pin** — the source is local, versioned by the projectfile
 - Reports are an OPEN list: a type this build has never seen still arrives, because
