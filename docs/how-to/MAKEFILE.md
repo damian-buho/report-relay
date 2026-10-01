@@ -593,6 +593,14 @@ Scan Go code for security issues
 
 > Image: D9T_GO_TOOLS_IMAGE
 
+### `auto-gsa`
+
+Analyze Go binary size (go-size-analyzer)
+
+`.makefile/library/scripts/gsa-cell.sh ${org.projectfile.artifacts.go-binary.path}`
+
+> Image: D9T_GO_TOOLS_IMAGE
+
 ### `check-outdated-go`
 
 Fail on direct Go modules that lag upstream
@@ -1284,6 +1292,56 @@ Validate the projectfile document
 `pf-cli validate`
 
 > Image: PF_CLI_IMAGE
+
+## Publish
+
+### `build-binaries`
+
+Cross-compile the release binaries for the OS/arch cell
+
+`.scripts/build-binaries.sh`
+
+> Image: GO_TOOL_IMAGE
+
+### `cosign-preflight`
+
+Prove the cosign signing key signs and verifies before anything is pushed
+
+`auto-cosign preflight`
+
+> Image: D9T_GO_TOOLS_IMAGE
+
+### `cosign-sbom-attest`
+
+Attest the SBOM to the published image with cosign
+
+`auto-cosign attest`
+
+> Image: D9T_GO_TOOLS_IMAGE
+
+### `cosign-sign`
+
+Sign the published image with cosign
+
+`auto-cosign sign`
+
+> Image: D9T_GO_TOOLS_IMAGE
+
+### `install-binary`
+
+Build the host-native binary and install it into ~/.local/bin
+
+`.scripts/install-binary.sh`
+
+> Image: host runner
+
+### `syft-sbom-image`
+
+Generate an SBOM of the live built image (syft)
+
+`auto-syft image $(M6E_IMAGE_FULLNAME)`
+
+> Image: D9T_GO_TOOLS_IMAGE
 
 ## Release
 
