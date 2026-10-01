@@ -17,6 +17,8 @@ pf-cli-managed: yes
 
 > А якщо проєкт вам подобається, але часу на внесок немає — нічого страшного. Є й інші прості способи підтримати проєкт і висловити свою вдячність, і ми їм теж будемо дуже раді:
 >
+> - Поставте проєкту зірку на [codeberg.org](https://codeberg.org/damian-buho/report-relay)
+> - Поставте проєкту зірку на [github.com](https://github.com/damian-buho/report-relay)
 > - Згадайте цей проєкт у readme свого проєкту
 > - Розкажіть про проєкт на місцевих зустрічах, друзям і колегам
 > - Підпишіться на [автора (mastodon.social/@damianbuho) у Mastodon](https://mastodon.social/@damianbuho)

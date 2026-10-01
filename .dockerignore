@@ -16,6 +16,7 @@
 .fetch
 .forgejo
 .git
+.github
 .makefile
 .secrets
 .worktrees
