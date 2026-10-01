@@ -22,6 +22,9 @@ includes:
   - .makefile/b19/ci.yaml
   - .makefile/b19/images/go.yaml
   - .makefile/b19/images/ubuntu.yaml
+  - .makefile/b19/traits/attested-images.yaml
+  - .makefile/b19/traits/sbom-images.yaml
+  - .makefile/b19/traits/signed-images.yaml
   - .makefile/container/traits/readme-service.yaml
   - .makefile/library/languages/go.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/include.yaml
