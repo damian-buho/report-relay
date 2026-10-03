@@ -16,8 +16,8 @@ identity:
     en: Report Relay accepts the security reports browsers and mail servers send — Reporting API batches, legacy CSP report-uri bodies, network error logs and SMTP TLS reports — and emits one OpenTelemetry log record per report, so they land in the existing Loki, Tempo and Grafana stack instead of a separate collector per report type.
     es: Report Relay acepta los informes de seguridad que envían los navegadores y los servidores de correo — lotes de Reporting API, cuerpos heredados de report-uri de CSP, registros de errores de red e informes SMTP TLS — y emite un registro de log de OpenTelemetry por informe, de modo que aterrizan en la pila existente de Loki, Tempo y Grafana en lugar de un recolector distinto por tipo de informe.
     uk: Report Relay приймає звіти безпеки, які надсилають браузери та поштові сервери — пакети Reporting API, старі тіла report-uri від CSP, журнали помилок мережі та звіти SMTP TLS — і випускає один запис логу OpenTelemetry на звіт, тож вони потрапляють до наявного стеку Loki, Tempo та Grafana, а не до окремого збирача для кожного типу звітів.
-  version: 0.6.0
-  released: "2026-10-01"
+  version: 0.6.1
+  released: "2026-10-03"
 includes:
   - .makefile/b19/ci.yaml
   - .makefile/b19/images/go.yaml

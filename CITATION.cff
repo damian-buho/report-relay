@@ -23,7 +23,7 @@ contact:
     email: damian.buho@proton.me
     orcid: https://orcid.org/0009-0004-8579-7633
     website: https://dbuho.me
-version: 0.6.0
+version: 0.6.1
 keywords:
   - opentelemetry
   - otlp
@@ -36,4 +36,4 @@ keywords:
   - docker
 license: MIT
 repository-code: https://kiota.ch/damian-buho/report-relay
-date-released: "2026-10-01"
+date-released: "2026-10-03"
