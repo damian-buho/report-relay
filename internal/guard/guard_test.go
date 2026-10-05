@@ -209,11 +209,11 @@ func mustNets(t *testing.T, cidrs ...string) []*net.IPNet {
 
 func TestLimiterBoundsTheTable(t *testing.T) {
 	limiter := NewLimiter(1000, 1000)
-	for i := range maxClients + 500 {
+	for i := range defaultMaxClients + 500 {
 		limiter.Allow("10.1." + strconv.Itoa(i/256) + "." + strconv.Itoa(i%256))
 	}
-	if got := limiter.Clients(); got > maxClients {
-		t.Errorf("clients = %d, want at most %d", got, maxClients)
+	if got := limiter.Clients(); got > defaultMaxClients {
+		t.Errorf("clients = %d, want at most %d", got, defaultMaxClients)
 	}
 }
 
@@ -227,6 +227,25 @@ func TestLimiterClampsNonsense(t *testing.T) {
 	}
 	if limiter.Allow("203.0.113.9") {
 		t.Fatal("a clamped limiter admitted past its burst: negative rates must fail closed")
+	}
+}
+
+func TestLimiterEvictionKeepsAnActiveClient(t *testing.T) {
+	limiter := NewLimiter(1, 1)
+	limiter.max = 3
+	if !limiter.Allow("victim") {
+		t.Fatal("the victim's first request was refused")
+	}
+	limiter.Allow("198.51.100.1")
+	limiter.Allow("198.51.100.2")
+	if limiter.Allow("victim") {
+		t.Fatal("the victim was admitted twice on a burst of 1: its spent budget was lost")
+	}
+	for i := range 4 {
+		limiter.Allow("flood-" + strconv.Itoa(i))
+		if limiter.Allow("victim") {
+			t.Fatalf("flood round %d: the active victim lost its bucket and was given fresh tokens", i)
+		}
 	}
 }
 
