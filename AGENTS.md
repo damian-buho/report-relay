@@ -49,12 +49,16 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
   OTLP `EventName` field of the same name is invisible to it. Setting only the
   field lands a line whose report type no query can select.
 - The intake answers `204` after validation and enqueue, never after the export.
+- A batch the full queue cannot take is answered `429` with `Retry-After`,
+  so the sender retries the whole batch instead of assuming delivery.
 - `REPORT_RELAY_*` config, plus the standard `OTEL_EXPORTER_OTLP_*` the SDK reads.
 - Label safety: a report `type` becomes the `event.name` label and the
   `report_type` metric label, so `intake.SanitizeType` folds every type to
   `^[a-z0-9-]{1,64}$` and buckets the rest as `unknown` (raw kept in the body).
-- Backpressure: the emitter gates admissions on the queue size and counts
-  `queue-full` drops itself; three consecutive export failures trip `/readyz`.
+- Backpressure: the emitter gates admissions on the queue size with an atomic
+  claim (no overshoot under bursts) and counts `queue-full` drops itself;
+  three consecutive export failures trip `/readyz` (consecutive, not windowed:
+  an exporter answering at all is not dead).
 - Startup validation refuses `burst < 1`, `rps <= 0` and ports outside 1025–65535.
 - TLS-RPT yields one record per failure detail (individual) or per result type
   (aggregate); that mapping is the decided answer to the spec’s open question.

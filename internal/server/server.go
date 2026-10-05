@@ -224,11 +224,21 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 			writeGuardError(w, reason)
 			return
 		}
+		dropped := false
 		for _, report := range reports {
 			s.emitter.CountReceived(r.Context(), report.Type, report.Domain)
 			if s.emitter.Emit(r.Context(), report) {
 				s.emitter.CountAccepted(r.Context(), report.Type, report.Domain)
+			} else {
+				dropped = true
 			}
+		}
+		if dropped {
+			s.log.Warn("queue full, batch not fully accepted", "source", source,
+				"client_ip", clientIP, "reports", len(reports))
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
 		}
 		s.log.Debug("reports accepted", "source", source, "client_ip", clientIP,
 			"reports", len(reports), "bytes", len(body))

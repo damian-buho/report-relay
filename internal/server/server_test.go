@@ -406,13 +406,30 @@ func (b *blockingRecorder) Shutdown(context.Context) error { return nil }
 
 func (b *blockingRecorder) ForceFlush(context.Context) error { return nil }
 
-func TestAFullQueueDropsWithoutBlockingIntake(t *testing.T) {
+// gateExporter blocks every export until release is closed, so the batch
+// processor never frees a queue slot mid-test and the gate trips on schedule.
+type gateExporter struct{ release chan struct{} }
+
+func (g *gateExporter) Export(ctx context.Context, batch []sdklog.Record) error {
+	select {
+	case <-g.release:
+		return errors.New("collector unreachable")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (g *gateExporter) Shutdown(context.Context) error { return nil }
+
+func (g *gateExporter) ForceFlush(context.Context) error { return nil }
+
+func TestAFullQueueSignalsBackpressure(t *testing.T) {
 	cfg := testConfig()
-	cfg.QueueSize = 1
+	cfg.QueueSize = 2
 	cfg.BatchTimeout = time.Hour
-	sink := &blockingRecorder{}
+	gate := &gateExporter{release: make(chan struct{})}
 	reader := sdkmetric.NewManualReader()
-	em, err := telemetry.NewWithExporters(cfg, sink, reader)
+	em, err := telemetry.NewWithExporters(cfg, gate, reader)
 	if err != nil {
 		t.Fatalf("NewWithExporters: %v", err)
 	}
@@ -420,16 +437,29 @@ func TestAFullQueueDropsWithoutBlockingIntake(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := New(cfg, log, em, func() bool { return true })
 	handler := srv.IntakeHandler()
-	// Every request is answered 204 even though nothing can be exported: the
-	// queue is bounded and drops, so a dead collector never slows a browser.
-	for i := range 50 {
-		if rec := post(t, handler, intake.MediaReportingAPI, oneReport); rec.Code != http.StatusNoContent {
-			t.Fatalf("request %d answered %d, want 204 while the queue is full", i, rec.Code)
+	// The first requests take the two queue slots; everything past them is
+	// answered 429, so the sender retries instead of assuming delivery.
+	saw429 := false
+	for i := range 51 {
+		rec := post(t, handler, intake.MediaReportingAPI, oneReport)
+		switch rec.Code {
+		case http.StatusNoContent:
+		case http.StatusTooManyRequests:
+			saw429 = true
+			if rec.Header().Get("Retry-After") == "" {
+				t.Errorf("request %d: a 429 without Retry-After leaves the client guessing", i)
+			}
+		default:
+			t.Fatalf("request %d answered %d, want 204 or 429", i, rec.Code)
 		}
+	}
+	if !saw429 {
+		t.Error("no request was answered 429 while the exporter was blocked")
 	}
 	if got := droppedByReason(t, reader, telemetry.ReasonQueueFull); got == 0 {
 		t.Error("no queue-full drop was counted while the exporter was blocked")
 	}
+	close(gate.release)
 }
 
 func TestExportFailureNeverBlocksIntake(t *testing.T) {

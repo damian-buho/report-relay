@@ -259,15 +259,21 @@ func (e *Emitter) ExportHealthy() bool {
 // and never enqueued, so the drop has a metric and the SDK queue never fills.
 func (e *Emitter) Emit(ctx context.Context, r intake.Report) bool {
 	r.Type = intake.SanitizeType(r.Type)
-	if e.queued.Load() >= int64(e.queueSize) {
-		e.dropped.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("reason", ReasonQueueFull),
-			attribute.String("report_type", r.Type),
-		))
-		slog.Warn("queue full, report dropped", "report_type", r.Type, "queue_size", e.queueSize)
-		return false
+	for {
+		// The check and the claim are one atomic step, so a burst cannot overshoot the bound.
+		backlog := e.queued.Load()
+		if backlog >= int64(e.queueSize) {
+			e.dropped.Add(ctx, 1, metric.WithAttributes(
+				attribute.String("reason", ReasonQueueFull),
+				attribute.String("report_type", r.Type),
+			))
+			slog.Warn("queue full, report dropped", "report_type", r.Type, "queue_size", e.queueSize)
+			return false
+		}
+		if e.queued.CompareAndSwap(backlog, backlog+1) {
+			break
+		}
 	}
-	e.queued.Add(1)
 	now := time.Now()
 	var record log.Record
 	record.SetTimestamp(now)
