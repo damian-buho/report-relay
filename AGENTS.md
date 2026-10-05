@@ -32,6 +32,8 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - `REPORT_RELAY_KEEP_QUERY=false`, `REPORT_RELAY_TRUST_PROXY=false`
 - `REPORT_RELAY_TRUSTED_PROXIES=""` — comma CIDRs or bare IPs honored as proxy peers; with the flag on but this empty, forwarded headers stay ignored, and a bad entry refuses to start
 - `REPORT_RELAY_EXPORT_TIMEOUT=10s`, `REPORT_RELAY_SHUTDOWN_TIMEOUT=15s`
+- `REPORT_RELAY_QUEUE_SIZE=2048`, `REPORT_RELAY_BATCH_TIMEOUT=5s`
+- `REPORT_RELAY_EXPORT_INITIAL_BACKOFF=500ms`, `REPORT_RELAY_EXPORT_MAX_BACKOFF=30s`, `REPORT_RELAY_EXPORT_MAX_ELAPSED=2m`
 - `REPORT_RELAY_ENABLE_REPORTING_API=true`, `REPORT_RELAY_ENABLE_CSP=true`, `REPORT_RELAY_ENABLE_TLSRPT=true`
 - `REPORT_RELAY_ENABLE_EXPECT_CT=true`, `REPORT_RELAY_ENABLE_HPKP=true`, `REPORT_RELAY_ENABLE_IODEF=true`
 - The exporter reads the standard `OTEL_EXPORTER_OTLP_*` variables itself
@@ -72,3 +74,8 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
   Loki, then re-queries it BY LABEL. A stub collector would not catch a label the
   fleet’s own pipeline refuses to promote.
 - The Loki query window is epoch NANOSECONDS; a relative `0s` is rejected.
+- Perf baseline: `.scripts/bench-60s.sh` (real binary, loopback, stdout
+  exporter, limits raised) does ~18k rps for 60s at 100% 204; Go-level
+  `BenchmarkIntakeSerial/Parallel` in `internal/server/bench_test.go` does
+  ~46k/~93k rps. Default rate limits (20 rps, burst 40) cap one client far
+  below either number.
