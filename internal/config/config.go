@@ -28,6 +28,7 @@ type Config struct {
 	MaxBodyBytes         int64
 	MaxJSONDepth         int
 	MaxArrayItems        int
+	MaxBodyKeys          int
 	RateLimitRPS         float64
 	RateLimitBurst       int
 	AllowedOrigins       []string
@@ -61,6 +62,7 @@ func Load() Config {
 		MaxBodyBytes:      int64(envIntOr("REPORT_RELAY_MAX_BODY_BYTES", 65536)),
 		MaxJSONDepth:      envIntOr("REPORT_RELAY_MAX_JSON_DEPTH", 32),
 		MaxArrayItems:     envIntOr("REPORT_RELAY_MAX_ARRAY_ITEMS", 512),
+		MaxBodyKeys:       envIntOr("REPORT_RELAY_MAX_BODY_KEYS", 512),
 		RateLimitRPS:      envFloatOr("REPORT_RELAY_RATE_LIMIT_RPS", 20),
 		RateLimitBurst:    envIntOr("REPORT_RELAY_RATE_LIMIT_BURST", 40),
 		AllowedOrigins:    splitList(os.Getenv("REPORT_RELAY_ALLOWED_ORIGINS")),
@@ -97,6 +99,7 @@ func (c Config) Log(log *slog.Logger) {
 		"max_body_bytes", c.MaxBodyBytes,
 		"max_json_depth", c.MaxJSONDepth,
 		"max_array_items", c.MaxArrayItems,
+		"max_body_keys", c.MaxBodyKeys,
 		"rate_limit_rps", c.RateLimitRPS,
 		"rate_limit_burst", c.RateLimitBurst,
 		"allowed_origins", c.AllowedOrigins,
@@ -151,10 +154,13 @@ func (c Config) Validate() error {
 	if c.MaxArrayItems < 1 {
 		errs = append(errs, fmt.Sprintf("max array items %d: want >= 1", c.MaxArrayItems))
 	}
+	if c.MaxBodyKeys < 1 {
+		errs = append(errs, fmt.Sprintf("max body keys %d: want >= 1", c.MaxBodyKeys))
+	}
 	if c.QueueSize < 1 {
 		errs = append(errs, fmt.Sprintf("queue size %d: want >= 1", c.QueueSize))
 	}
-	for name, d := range map[string]time.Duration{"export timeout": c.ExportTimeout, "shutdown timeout": c.ShutdownTimeout, "batch timeout": c.BatchTimeout} {
+	for name, d := range map[string]time.Duration{"export timeout": c.ExportTimeout, "shutdown timeout": c.ShutdownTimeout, "batch timeout": c.BatchTimeout, "export initial backoff": c.ExportInitialBackoff, "export max backoff": c.ExportMaxBackoff, "export max elapsed": c.ExportMaxElapsed} {
 		if d <= 0 {
 			errs = append(errs, fmt.Sprintf("%s %v: want > 0", name, d))
 		}
