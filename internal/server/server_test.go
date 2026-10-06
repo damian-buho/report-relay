@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -64,6 +65,7 @@ func testConfig() config.Config {
 		MaxBodyBytes:   65536,
 		MaxJSONDepth:   32,
 		MaxArrayItems:  512,
+		MaxBodyKeys:    512,
 		RateLimitRPS:   1000,
 		RateLimitBurst: 1000,
 		QueueSize:      8,
@@ -517,6 +519,20 @@ func TestRateLimitAnswerCarriesRetryAfter(t *testing.T) {
 	}
 	if rec.Header().Get("Retry-After") == "" {
 		t.Error("a 429 without Retry-After leaves the client guessing")
+	}
+}
+
+func TestOversizeKeyCountIsRefusedAsTooLarge(t *testing.T) {
+	srv, _, _ := testServer(t, testConfig())
+	var b strings.Builder
+	b.WriteString(`[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"gone"`)
+	for i := range 511 {
+		b.WriteString(`,"k` + strconv.Itoa(i) + `":"v"`)
+	}
+	b.WriteString(`}}]`)
+	body := b.String()
+	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413 for a body past the key cap", rec.Code)
 	}
 }
 

@@ -18,7 +18,7 @@ import (
 )
 
 func testLimits() guard.Limits {
-	return guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 512}
+	return guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 512, MaxBodyKeys: 512}
 }
 
 // testSiteURL and testBlockedURL are the sites every fixture reports on, and
@@ -276,7 +276,7 @@ func TestKeepQueryPreservesTheURL(t *testing.T) {
 }
 
 func TestReportingAPIBatchOverTheArrayCapIsRejected(t *testing.T) {
-	limits := guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 2}
+	limits := guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 2, MaxBodyKeys: 512}
 	body := []byte(`[
 	  {"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}},
 	  {"type":"deprecation","age":2,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}},
@@ -326,7 +326,7 @@ func TestUppercaseUnknownTypeIsFolded(t *testing.T) {
 }
 
 func TestTLSRPTFailureDetailsOverTheCapAreRejected(t *testing.T) {
-	limits := guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 1}
+	limits := guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 1, MaxBodyKeys: 512}
 	body := []byte(`{"organization-name":"dbuho.me","report-id":"r1","result-type":"individual",
 	  "failure-details":[
 	    {"result-type":"expired","server-name":"mx1.dbuho.me"},

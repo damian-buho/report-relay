@@ -32,11 +32,17 @@ var ErrTooDeep = errors.New("json nests deeper than the configured cap")
 // ErrArrayTooLong is returned when a JSON array holds more items than the cap.
 var ErrArrayTooLong = errors.New("json array holds more items than the configured cap")
 
+// ErrTooManyKeys is returned when a JSON body holds more object keys than the
+// cap. Every key becomes one log attribute, so the key count bounds the
+// record, the way the array cap bounds the batch.
+var ErrTooManyKeys = errors.New("json body holds more keys than the configured cap")
+
 // Limits are the caps every accepted body must satisfy.
 type Limits struct {
 	MaxBodyBytes  int64
 	MaxJSONDepth  int
 	MaxArrayItems int
+	MaxBodyKeys   int
 }
 
 // Limiter is a per-client-IP token bucket. The table is bounded and eviction
@@ -287,10 +293,13 @@ func DecodeBody(raw []byte, dst any) error {
 }
 
 // checkShape walks the raw token stream, which costs no allocation and needs no
-// reflection over the decoded value.
+// reflection over the decoded value. Keys are counted across the whole body:
+// one body key becomes one log attribute, so the total count is the bound.
 func checkShape(body []byte, limits Limits) error {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	depth := 0
+	keys := 0
+	var stack []frame
 	for {
 		tok, err := dec.Token()
 		if errors.Is(err, io.EOF) {
@@ -299,20 +308,65 @@ func checkShape(body []byte, limits Limits) error {
 		if err != nil {
 			return fmt.Errorf("decode: %w", err)
 		}
-		delim, ok := tok.(json.Delim)
-		if !ok {
+		if delim, ok := tok.(json.Delim); ok {
+			switch delim {
+			case '{', '[':
+				depth++
+				if depth > limits.MaxJSONDepth {
+					return ErrTooDeep
+				}
+				stack = append(stack, frame{object: delim == '{', key: true})
+			case '}', ']':
+				stack = popFrame(stack)
+			}
 			continue
 		}
-		switch delim {
-		case '{', '[':
-			depth++
-			if depth > limits.MaxJSONDepth {
-				return ErrTooDeep
-			}
-		case '}', ']':
-			depth--
+		top := topFrame(stack)
+		if top == nil || !top.object {
+			continue
 		}
+		if _, ok := tok.(string); ok {
+			if top.key {
+				keys++
+				if keys > limits.MaxBodyKeys {
+					return fmt.Errorf("body holds more than %d keys: %w", limits.MaxBodyKeys, ErrTooManyKeys)
+				}
+				top.key = false
+			} else {
+				top.key = true
+			}
+			continue
+		}
+		top.key = true
 	}
+}
+
+// frame is one open container in the shape walk: whether it takes keys, and
+// whether the next string token is one.
+type frame struct {
+	object bool
+	key    bool
+}
+
+// topFrame returns the innermost open container, or nil outside any.
+func topFrame(stack []frame) *frame {
+	if len(stack) == 0 {
+		return nil
+	}
+	return &stack[len(stack)-1]
+}
+
+// popFrame closes the innermost container. A closed value completes its
+// parent's key, so the parent expects a key (in an object) next.
+func popFrame(stack []frame) []frame {
+	if len(stack) == 0 {
+		return stack
+	}
+	stack = stack[:len(stack)-1]
+	if top := topFrame(stack); top != nil && top.object {
+		top.key = true
+	}
+	return stack
 }
 
 // CountItems returns the number of elements in a JSON array, refusing one that

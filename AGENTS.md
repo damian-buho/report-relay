@@ -27,7 +27,7 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - `REPORT_RELAY_LOG_LEVEL=info`
 - `REPORT_RELAY_HTTP_PORT=8080` (public intake)
 - `REPORT_RELAY_ADMIN_PORT=8081` (`/healthz`, `/readyz`)
-- `REPORT_RELAY_MAX_BODY_BYTES=65536`, `REPORT_RELAY_MAX_JSON_DEPTH=32`, `REPORT_RELAY_MAX_ARRAY_ITEMS=512`
+- `REPORT_RELAY_MAX_BODY_BYTES=65536`, `REPORT_RELAY_MAX_JSON_DEPTH=32`, `REPORT_RELAY_MAX_ARRAY_ITEMS=512`, `REPORT_RELAY_MAX_BODY_KEYS=512`
 - `REPORT_RELAY_RATE_LIMIT_RPS=20`, `REPORT_RELAY_RATE_LIMIT_BURST=40`
 - `REPORT_RELAY_KEEP_QUERY=false`, `REPORT_RELAY_TRUST_PROXY=false`
 - `REPORT_RELAY_TRUSTED_PROXIES=""` — comma CIDRs or bare IPs honored as proxy peers; with the flag on but this empty, forwarded headers stay ignored, and a bad entry refuses to start
@@ -55,6 +55,9 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - Label safety: a report `type` becomes the `event.name` label and the
   `report_type` metric label, so `intake.SanitizeType` folds every type to
   `^[a-z0-9-]{1,64}$` and buckets the rest as `unknown` (raw kept in the body).
+- Attribute safety: one body key becomes one log attribute, so the shape walk
+  refuses bodies past `MAX_BODY_KEYS` with `413`; IODEF needs no such cap,
+  its decoder only keeps known fields into fixed lists.
 - Backpressure: the emitter gates admissions on the queue size with an atomic
   claim (no overshoot under bursts) and counts `queue-full` drops itself;
   three consecutive export failures trip `/readyz` (consecutive, not windowed:

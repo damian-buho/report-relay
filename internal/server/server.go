@@ -53,6 +53,7 @@ func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready 
 			MaxBodyBytes:  cfg.MaxBodyBytes,
 			MaxJSONDepth:  cfg.MaxJSONDepth,
 			MaxArrayItems: cfg.MaxArrayItems,
+			MaxBodyKeys:   cfg.MaxBodyKeys,
 		},
 		trusted: trusted,
 		ready:   ready,
@@ -211,6 +212,7 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 			switch {
 			case errors.Is(err, guard.ErrTooLarge),
 				errors.Is(err, guard.ErrTooDeep),
+				errors.Is(err, guard.ErrTooManyKeys),
 				errors.Is(err, guard.ErrArrayTooLong):
 				reason = telemetry.ReasonTooLarge
 			case errors.Is(err, intake.ErrInvalidReport):

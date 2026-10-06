@@ -67,7 +67,7 @@ func TestReadBodyRejectsBrokenGzip(t *testing.T) {
 }
 
 func TestDecodeRejectsDeepNesting(t *testing.T) {
-	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 16}
+	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 16, MaxBodyKeys: 16}
 	body := []byte(strings.Repeat(`{"a":`, 20) + `1` + strings.Repeat(`}`, 20))
 	var dst map[string]any
 	if err := Decode(body, &dst, limits); !errors.Is(err, ErrTooDeep) {
@@ -76,7 +76,7 @@ func TestDecodeRejectsDeepNesting(t *testing.T) {
 }
 
 func TestDecodeAcceptsShallowNesting(t *testing.T) {
-	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 16}
+	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 16, MaxBodyKeys: 16}
 	var dst map[string]any
 	if err := Decode([]byte(`{"a":{"b":{"c":1}}}`), &dst, limits); err != nil {
 		t.Fatalf("Decode: %v", err)
@@ -85,7 +85,7 @@ func TestDecodeAcceptsShallowNesting(t *testing.T) {
 
 func TestDecodeRejectsBadJSON(t *testing.T) {
 	var dst map[string]any
-	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 16}
+	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 16, MaxBodyKeys: 16}
 	if err := Decode([]byte(`{"a":`), &dst, limits); err == nil {
 		t.Fatal("truncated JSON was accepted")
 	}
@@ -246,6 +246,33 @@ func TestLimiterEvictionKeepsAnActiveClient(t *testing.T) {
 		if limiter.Allow("victim") {
 			t.Fatalf("flood round %d: the active victim lost its bucket and was given fresh tokens", i)
 		}
+	}
+}
+
+func TestDecodeRefusesTooManyKeys(t *testing.T) {
+	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 32, MaxArrayItems: 8, MaxBodyKeys: 8}
+	keys := func(n int) string {
+		var b strings.Builder
+		b.WriteByte('{')
+		for i := range n {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(`"k` + strconv.Itoa(i) + `":0`)
+		}
+		b.WriteByte('}')
+		return b.String()
+	}
+	var dst map[string]any
+	if err := Decode([]byte(keys(8)), &dst, limits); err != nil {
+		t.Fatalf("a body at the key cap was refused: %v", err)
+	}
+	if err := Decode([]byte(keys(9)), &dst, limits); !errors.Is(err, ErrTooManyKeys) {
+		t.Fatalf("err = %v, want ErrTooManyKeys past the cap", err)
+	}
+	nested := `{"a":` + keys(7) + `,"b":0}`
+	if err := Decode([]byte(nested), &dst, limits); !errors.Is(err, ErrTooManyKeys) {
+		t.Fatalf("nested err = %v, want keys counted across levels", err)
 	}
 }
 
