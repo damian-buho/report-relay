@@ -23,7 +23,6 @@ includes:
   - .makefile/b19/images/go.yaml
   - .makefile/b19/images/ubuntu.yaml
   - .makefile/b19/traits/attested-images.yaml
-  - .makefile/b19/traits/sbom-images.yaml
   - .makefile/b19/traits/signed-images.yaml
   - .makefile/container/traits/readme-service.yaml
   - .makefile/library/languages/go.yaml
@@ -205,8 +204,8 @@ repositories:
   - role: mirror
     type: git
     url: git@codeberg.org:damian-buho/report-relay.git
-technologies:
-  - go
 requirements:
   runtime:
     go: '>= 1.26.0'
+technologies:
+  - go
