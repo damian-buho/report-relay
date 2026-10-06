@@ -412,7 +412,7 @@ func (b *blockingRecorder) ForceFlush(context.Context) error { return nil }
 // processor never frees a queue slot mid-test and the gate trips on schedule.
 type gateExporter struct{ release chan struct{} }
 
-func (g *gateExporter) Export(ctx context.Context, batch []sdklog.Record) error {
+func (g *gateExporter) Export(ctx context.Context, _ []sdklog.Record) error {
 	select {
 	case <-g.release:
 		return errors.New("collector unreachable")
