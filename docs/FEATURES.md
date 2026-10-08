@@ -16,6 +16,17 @@ SPDX-License-Identifier: MIT
 - Exports retry with exponential backoff and jitter under a total deadline, so a dead collector delays shutdown by a bounded amount and no more.
 - A graceful shutdown drains the queue within a configured deadline; `/healthz` and `/readyz` sit on a separate admin port from the public intake.
 
+### CAA IODEF incident reports
+
+- Accepts RFC 7970 IODEF incident reports, the kind certification authorities send to a CAA `iodef` address, as XML on `application/iodef+xml`, `application/xml` or `text/xml`.
+- One incident becomes one record in the `cert` domain, keyed by its incident identifier.
+- XML bodies with DTD declarations are refused, and the depth and size limits apply to XML as they do to JSON.
+
+### Cross-Origin-Embedder-Policy reports
+
+- Accepts `coep` reports, enforced and report-only alike, one record per report.
+- The `coep` and `coep-violation` spellings browsers have used are folded into one type, so a query never has to know which one was sent.
+
 ### Dropped into an OpenTelemetry setup unchanged
 
 - Configuration is environment-first under `REPORT_RELAY_*`, and the exporter reads the standard `OTEL_EXPORTER_OTLP_*` variables, so no custom client block is needed.
@@ -23,6 +34,43 @@ SPDX-License-Identifier: MIT
 - The service reports on itself over the same channel: reports received, accepted and dropped, each drop labelled with the reason that caused it.
 - Structured JSON logs carry the variable behind every decision, so an operator reads why a report was dropped from the log line itself.
 - Ships as a prebuilt Linux binary for amd64, arm64 and riscv64 beside the image, so it runs on a host with no container runtime.
+
+### Cross-Origin-Opener-Policy reports
+
+- Accepts `coop` reports, enforced and report-only alike, one record per report.
+- A report without its disposition, effective policy or type is refused and counted instead of exported half-empty.
+
+### Browser crash reports
+
+- Accepts `crash` reports from the Reporting API, one record per crash.
+- The body arrives intact, so the crash reason a browser chooses to disclose is queryable as it was sent.
+
+### Legacy CSP report-uri reports
+
+- Accepts the `application/csp-report` bodies sent by browsers that predate the Reporting API.
+- The legacy body is normalised to the Reporting API shape and the same `csp-violation` type, so one query covers both mechanisms.
+- The page URL is taken from the report itself, so records stay selectable by site.
+
+### Content Security Policy violation reports
+
+- Accepts the `csp-violation` reports current browsers send through the Reporting API, one record per violation.
+- A report that names no document, directive or blocked resource is refused and counted, so a malformed sender never reaches the collector.
+- Query strings and fragments are stripped from the URLs it carries, because a report URL routinely holds a token.
+
+### Deprecation reports
+
+- Accepts `deprecation` reports, which tell you which deprecated browser feature your pages still call.
+- A report without its identifier and message is refused and counted, so every record is one you can act on.
+
+### Document Policy violation reports
+
+- Accepts `document-policy-violation` reports, one record per violation.
+- A report without its policy identifier and disposition is refused and counted, so a record always says which policy fired and whether it was enforced.
+
+### Expect-CT violation reports
+
+- Accepts RFC 9163 Expect-CT reports, which tell you when a certificate failed a browser’s Certificate Transparency check.
+- The failing hostname is the record’s site, so a report that names none is refused and counted.
 
 ### A public intake, guarded by default
 
@@ -32,13 +80,50 @@ SPDX-License-Identifier: MIT
 - The CORS preflight is answered for the reporting methods, with an optional origin allow-list; unset means any origin, because reporting is cross-origin by nature.
 - Behind a reverse proxy, the forwarded chain is honored only from trusted proxy networks (`REPORT_RELAY_TRUST_PROXY` plus `REPORT_RELAY_TRUSTED_PROXIES`), so a direct caller cannot pick its own rate-limit bucket by forging a header.
 
-### One intake for every report a site can send
+### HPKP pin validation failure reports
 
-- Accepts Reporting API batches (CSP, COOP, COEP, crash, deprecation, intervention, integrity, permissions and document policy, network errors), legacy CSP `report-uri` bodies, legacy Expect-CT and HPKP reports, SMTP TLS reports, and CAA IODEF incident reports on a single endpoint, so no per-report-type collector has to be deployed.
+- Accepts RFC 7469 public key pin failure reports, which have no media type of their own and arrive as plain `application/json`.
+- Only a body carrying the full pin failure shape is admitted, so the JSON endpoint is not an open door for arbitrary payloads.
+
+### Subresource Integrity violation reports
+
+- Accepts `integrity-violation` reports, which tell you when a script or style sheet failed its integrity check and was blocked.
+- A report that names no document or blocked resource is refused and counted.
+- Query strings and fragments are stripped from the URLs it carries, because a report URL routinely holds a token.
+
+### Browser intervention reports
+
+- Accepts `intervention` reports, which tell you when a browser overrode your page for performance, security or user-experience reasons.
+- A report without its identifier and message is refused and counted, so every record is one you can act on.
+
+### Network Error Logging reports
+
+- Accepts `network-error` reports, which tell you when real visitors failed to reach your site: DNS, TCP, TLS and HTTP failures seen from their side.
+- The `nel` and `networkerror` spellings are folded into one type, so a query never has to know which one was sent.
+- A report without its phase and error type is refused and counted.
+
+### One endpoint for every report a site can send
+
+- Every format listed here arrives on a single endpoint and is routed by its content type, so no per-report-type collector has to be deployed.
 - One POST becomes one log record per report, ready for the Loki, Tempo and Grafana stack you already run — a query never sees a whole batch as a single line.
 - Every record is selectable by its report type and by the site it came from, so a dashboard filters on `event_name` and `report.url_host` without touching a line.
-- The legacy CSP body is normalised to the Reporting API shape, so a query never has to care which mechanism the browser used.
-- A report type this build has never heard of still arrives, with its body intact — the Reporting API is an open list, and a new type is not a reason to lose the report.
+- Each format has its own switch, so an intake you do not use can be refused while the rest keeps running.
+
+### Permissions Policy violation reports
+
+- Accepts `permissions-policy-violation` reports, the older `feature-policy-violation` name, and `potential-permissions-policy-violation` reports.
+- A report without its policy identifier and disposition is refused and counted, so a record always says which policy fired and whether it was enforced.
+
+### SMTP TLS reports
+
+- Accepts RFC 8460 TLS-RPT reports from mail servers, plain JSON or gzip, and files them in the `mail` domain beside the browser reports.
+- An individual report becomes one record per failure; an aggregate report becomes one record per result type, with its failing session counts.
+- A gzip body is capped after decompression, so a small upload cannot expand past the body limit.
+
+### A report type nobody has defined yet is still kept
+
+- The Reporting API is an open list, so a type this build has never heard of is accepted with its body intact instead of being thrown away.
+- A type that is not safe to use as a label is bucketed as `unknown`, and the sender’s own spelling stays in the record body.
 
 ## Inherited from B19 / Ubuntu
 

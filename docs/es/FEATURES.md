@@ -18,6 +18,17 @@ SPDX-License-Identifier: MIT
 - Las exportaciones reintentan con retroceso exponencial y dispersión bajo un plazo total, así que un colector muerto retrasa el apagado una cantidad acotada y nada más.
 - Un apagado ordenado drena la cola dentro de un plazo configurado; `/healthz` y `/readyz` viven en un puerto de administración aparte del público.
 
+### Informes de incidentes IODEF de CAA
+
+- Acepta informes de incidentes IODEF del RFC 7970, los que las autoridades de certificación envían a una dirección `iodef` de CAA, como XML en `application/iodef+xml`, `application/xml` o `text/xml`.
+- Un incidente se convierte en un registro del dominio `cert`, identificado por su identificador de incidente.
+- Los cuerpos XML con declaraciones DTD se rechazan, y los límites de profundidad y tamaño se aplican al XML igual que al JSON.
+
+### Informes de Cross-Origin-Embedder-Policy
+
+- Acepta informes `coep`, tanto aplicados como solo de informe, un registro por informe.
+- Los nombres `coep` y `coep-violation` que han usado los navegadores se unifican en un solo tipo, así una consulta no tiene que saber cuál se envió.
+
 ### Se integra sin cambios en una instalación de OpenTelemetry
 
 - La configuración es primero por entorno bajo `REPORT_RELAY_*`, y el exportador lee las variables estándar `OTEL_EXPORTER_OTLP_*`, así que no hace falta ningún bloque de cliente a medida.
@@ -25,6 +36,43 @@ SPDX-License-Identifier: MIT
 - El servicio informa sobre sí mismo por el mismo canal: informes recibidos, aceptados y descartados, cada descarte etiquetado con el motivo que lo causó.
 - Los registros estructurados en JSON llevan la variable detrás de cada decisión, así que un operador lee por qué se descartó un informe en la propia línea de log.
 - Se publica como binario precompilado para Linux en amd64, arm64 y riscv64 junto a la imagen, así que funciona en un equipo sin entorno de contenedores.
+
+### Informes de Cross-Origin-Opener-Policy
+
+- Acepta informes `coop`, tanto aplicados como solo de informe, un registro por informe.
+- Un informe sin su disposición, política efectiva o tipo se rechaza y se cuenta en lugar de exportarse a medias.
+
+### Informes de fallos del navegador
+
+- Acepta informes `crash` de la Reporting API, un registro por fallo.
+- El cuerpo llega intacto, así el motivo del fallo que el navegador decide revelar se puede consultar tal como se envió.
+
+### Informes heredados de CSP report-uri
+
+- Acepta los cuerpos `application/csp-report` que envían los navegadores anteriores a la Reporting API.
+- El cuerpo heredado se normaliza a la forma de Reporting API y al mismo tipo `csp-violation`, así una sola consulta cubre ambos mecanismos.
+- La URL de la página se toma del propio informe, así los registros siguen siendo seleccionables por sitio.
+
+### Informes de infracciones de Content Security Policy
+
+- Acepta los informes `csp-violation` que los navegadores actuales envían mediante la Reporting API, un registro por infracción.
+- Un informe que no nombra documento, directiva ni recurso bloqueado se rechaza y se cuenta, así un emisor mal formado nunca llega al recolector.
+- Las cadenas de consulta y los fragmentos se eliminan de las URL que contiene, porque la URL de un informe suele llevar un token.
+
+### Informes de obsolescencia
+
+- Acepta informes `deprecation`, que indican qué función obsoleta del navegador siguen usando tus páginas.
+- Un informe sin su identificador y mensaje se rechaza y se cuenta, así cada registro es uno sobre el que se puede actuar.
+
+### Informes de infracciones de Document Policy
+
+- Acepta informes `document-policy-violation`, un registro por infracción.
+- Un informe sin su identificador de política y disposición se rechaza y se cuenta, así un registro siempre dice qué política se activó y si se aplicó.
+
+### Informes de infracciones de Expect-CT
+
+- Acepta informes Expect-CT del RFC 9163, que indican cuándo un certificado falló la comprobación de Certificate Transparency de un navegador.
+- El nombre de host que falla es el sitio del registro, así que un informe que no nombra ninguno se rechaza y se cuenta.
 
 ### Una entrada pública, protegida por defecto
 
@@ -34,13 +82,50 @@ SPDX-License-Identifier: MIT
 - Se responde al preflight CORS de los métodos de envío, con lista blanca de orígenes opcional; sin configurar vale cualquier origen, porque el envío es entre orígenes por naturaleza.
 - Detrás de un proxy inverso, la cadena reenviada solo se acepta desde redes proxy de confianza (`REPORT_RELAY_TRUST_PROXY` más `REPORT_RELAY_TRUSTED_PROXIES`), así una llamada directa no puede elegir su propio cubo de límite forjando una cabecera.
 
+### Informes de fallos de validación de pines HPKP
+
+- Acepta informes de fallo de pines de clave pública del RFC 7469, que no tienen tipo de medio propio y llegan como `application/json` simple.
+- Solo se admite un cuerpo con la forma completa de un fallo de pines, así el punto de conexión JSON no es una puerta abierta a cargas arbitrarias.
+
+### Informes de infracciones de Subresource Integrity
+
+- Acepta informes `integrity-violation`, que indican cuándo un script u hoja de estilo falló su comprobación de integridad y se bloqueó.
+- Un informe que no nombra documento ni recurso bloqueado se rechaza y se cuenta.
+- Las cadenas de consulta y los fragmentos se eliminan de las URL que contiene, porque la URL de un informe suele llevar un token.
+
+### Informes de intervención del navegador
+
+- Acepta informes `intervention`, que indican cuándo un navegador modificó tu página por motivos de rendimiento, seguridad o experiencia de usuario.
+- Un informe sin su identificador y mensaje se rechaza y se cuenta, así cada registro es uno sobre el que se puede actuar.
+
+### Informes de Network Error Logging
+
+- Acepta informes `network-error`, que indican cuándo visitantes reales no lograron llegar a tu sitio: fallos de DNS, TCP, TLS y HTTP vistos desde su lado.
+- Los nombres `nel` y `networkerror` se unifican en un solo tipo, así una consulta no tiene que saber cuál se envió.
+- Un informe sin su fase y tipo de error se rechaza y se cuenta.
+
 ### Una entrada para todos los informes que puede enviar un sitio
 
-- Acepta lotes de Reporting API (CSP, COOP, COEP, fallos, obsolescencias, intervenciones, integridad, políticas de permisos y de documento, errores de red), cuerpos heredados de `report-uri` de CSP, informes heredados de Expect-CT y HPKP, informes SMTP TLS e informes de incidentes IODEF de CAA en un mismo punto de conexión, así no hay que desplegar un recolector por cada tipo de informe.
+- Todos los formatos de esta lista llegan a un único punto de conexión y se enrutan por su tipo de contenido, así no hay que desplegar un recolector por cada tipo de informe.
 - Un POST se convierte en un registro de log por informe, listo para la pila de Loki, Tempo y Grafana que ya usas: una consulta nunca ve un lote entero como una sola línea.
 - Cada registro se puede seleccionar por su tipo de informe y por el sitio del que vino, así que un panel filtra por `event_name` y `report.url_host` sin tocar una línea.
-- El cuerpo heredado de CSP se normaliza a la forma de Reporting API, así una consulta no tiene que importar qué mecanismo usó el navegador.
-- Un tipo de informe que esta versión nunca ha visto llega igualmente, con su cuerpo intacto: la Reporting API es una lista abierta, y un tipo nuevo no es razón para perder el informe.
+- Cada formato tiene su propio interruptor, así que una entrada que no usas se puede rechazar mientras el resto sigue funcionando.
+
+### Informes de infracciones de Permissions Policy
+
+- Acepta informes `permissions-policy-violation`, el nombre anterior `feature-policy-violation` y los informes `potential-permissions-policy-violation`.
+- Un informe sin su identificador de política y disposición se rechaza y se cuenta, así un registro siempre dice qué política se activó y si se aplicó.
+
+### Informes SMTP TLS
+
+- Acepta informes TLS-RPT del RFC 8460 de servidores de correo, en JSON simple o gzip, y los archiva en el dominio `mail` junto a los informes de navegador.
+- Un informe individual se convierte en un registro por fallo; uno agregado, en un registro por tipo de resultado, con su recuento de sesiones fallidas.
+- Un cuerpo gzip se limita después de descomprimirlo, así una subida pequeña no puede expandirse más allá del límite de cuerpo.
+
+### Un tipo de informe que nadie ha definido todavía se conserva igualmente
+
+- La Reporting API es una lista abierta, así que un tipo que esta versión nunca ha visto se acepta con su cuerpo intacto en lugar de descartarse.
+- Un tipo que no es seguro como etiqueta se agrupa como `unknown`, y la grafía original del emisor queda en el cuerpo del registro.
 
 ## Heredado de B19 / Ubuntu
 

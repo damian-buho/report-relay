@@ -21,9 +21,25 @@ Report Relay accepts the security reports browsers and mail servers send — Rep
 ## Features
 
 - A slow collector never slows a browser
+- CAA IODEF incident reports
+- Cross-Origin-Embedder-Policy reports
 - Dropped into an OpenTelemetry setup unchanged
+- Cross-Origin-Opener-Policy reports
+- Browser crash reports
+- Legacy CSP report-uri reports
+- Content Security Policy violation reports
+- Deprecation reports
+- Document Policy violation reports
+- Expect-CT violation reports
 - A public intake, guarded by default
-- One intake for every report a site can send
+- HPKP pin validation failure reports
+- Subresource Integrity violation reports
+- Browser intervention reports
+- Network Error Logging reports
+- One endpoint for every report a site can send
+- Permissions Policy violation reports
+- SMTP TLS reports
+- A report type nobody has defined yet is still kept
 
 It also inherits the features of B19 / Ubuntu — see [Features](docs/FEATURES.md) for the full list.
 
@@ -64,11 +80,13 @@ docker pull kiota.ch/damian-buho/report-relay:latest
 
 ### Prebuilt binary
 
-Download the prebuilt binary for your platform from the latest GitHub release:
+Download the prebuilt binary for your platform from GitHub Releases:
 
 ```sh
-curl --fail --location --output report-relay https://github.com/damian-buho/report-relay/releases/latest/download/report-relay-$(uname -s | tr A-Z a-z)-$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/) && chmod +x report-relay
-./report-relay --help
+mkdir -p ~/.local/bin
+curl --fail --location --output ~/.local/bin/report-relay https://github.com/damian-buho/report-relay/releases/latest/download/report-relay-linux-$(uname -m)
+chmod +x ~/.local/bin/report-relay
+~/.local/bin/report-relay --help
 ```
 
 Published for: `linux/amd64`, `linux/arm64`, `linux/riscv64`

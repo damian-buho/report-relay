@@ -23,9 +23,25 @@ Report Relay приймає звіти безпеки, які надсилают
 ## Можливості
 
 - Повільний збирач ніколи не сповільнює браузер
+- Звіти про інциденти CAA IODEF
+- Звіти Cross-Origin-Embedder-Policy
 - Вбудовується без змін у встановлення OpenTelemetry
+- Звіти Cross-Origin-Opener-Policy
+- Звіти про збої браузера
+- Старі звіти CSP report-uri
+- Звіти про порушення Content Security Policy
+- Звіти про застарілі функції
+- Звіти про порушення Document Policy
+- Звіти про порушення Expect-CT
 - Публічна точка приймання, захищена за замовчуванням
+- Звіти про збої перевірки пінів HPKP
+- Звіти про порушення Subresource Integrity
+- Звіти про втручання браузера
+- Звіти Network Error Logging
 - Одна точка приймання для всіх звітів, які може надіслати сайт
+- Звіти про порушення Permissions Policy
+- Звіти SMTP TLS
+- Тип звіту, який ще ніхто не визначив, усе одно зберігається
 
 Також успадковує можливості B19 / Ubuntu — повний перелік див. у [Можливості](FEATURES.md).
 
@@ -66,11 +82,13 @@ docker pull kiota.ch/damian-buho/report-relay:latest
 
 ### Готовий бінарний файл
 
-Завантажте готовий бінарний файл для своєї платформи з останнього випуску на GitHub:
+Завантажте готовий бінарний файл для своєї платформи з випусків на GitHub:
 
 ```sh
-curl --fail --location --output report-relay https://github.com/damian-buho/report-relay/releases/latest/download/report-relay-$(uname -s | tr A-Z a-z)-$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/) && chmod +x report-relay
-./report-relay --help
+mkdir -p ~/.local/bin
+curl --fail --location --output ~/.local/bin/report-relay https://github.com/damian-buho/report-relay/releases/latest/download/report-relay-linux-$(uname -m)
+chmod +x ~/.local/bin/report-relay
+~/.local/bin/report-relay --help
 ```
 
 Опубліковано для: `linux/amd64`, `linux/arm64`, `linux/riscv64`

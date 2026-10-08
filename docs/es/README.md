@@ -23,9 +23,25 @@ Report Relay acepta los informes de seguridad que envían los navegadores y los 
 ## Características
 
 - Un colector lento nunca ralentiza a un navegador
+- Informes de incidentes IODEF de CAA
+- Informes de Cross-Origin-Embedder-Policy
 - Se integra sin cambios en una instalación de OpenTelemetry
+- Informes de Cross-Origin-Opener-Policy
+- Informes de fallos del navegador
+- Informes heredados de CSP report-uri
+- Informes de infracciones de Content Security Policy
+- Informes de obsolescencia
+- Informes de infracciones de Document Policy
+- Informes de infracciones de Expect-CT
 - Una entrada pública, protegida por defecto
+- Informes de fallos de validación de pines HPKP
+- Informes de infracciones de Subresource Integrity
+- Informes de intervención del navegador
+- Informes de Network Error Logging
 - Una entrada para todos los informes que puede enviar un sitio
+- Informes de infracciones de Permissions Policy
+- Informes SMTP TLS
+- Un tipo de informe que nadie ha definido todavía se conserva igualmente
 
 También hereda las características de B19 / Ubuntu; consulta [Características](FEATURES.md) para ver la lista completa.
 
@@ -66,11 +82,13 @@ docker pull kiota.ch/damian-buho/report-relay:latest
 
 ### Binario precompilado
 
-Descarga el binario precompilado para tu plataforma desde la última versión en GitHub:
+Descarga el binario precompilado para tu plataforma desde las versiones de GitHub:
 
 ```sh
-curl --fail --location --output report-relay https://github.com/damian-buho/report-relay/releases/latest/download/report-relay-$(uname -s | tr A-Z a-z)-$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/) && chmod +x report-relay
-./report-relay --help
+mkdir -p ~/.local/bin
+curl --fail --location --output ~/.local/bin/report-relay https://github.com/damian-buho/report-relay/releases/latest/download/report-relay-linux-$(uname -m)
+chmod +x ~/.local/bin/report-relay
+~/.local/bin/report-relay --help
 ```
 
 Publicado para: `linux/amd64`, `linux/arm64`, `linux/riscv64`
