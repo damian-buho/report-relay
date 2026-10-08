@@ -23,7 +23,7 @@ env:
   GOPROXY: https://kiota.ch/api/packages/projectfile/go,direct
   O9S_ALLOY_IMAGE: ${{ vars.O9S_ALLOY_IMAGE || format('{0}/o9s/alloy:{1}', vars.SOURCE_DOCKER_REGISTRY || 'ghcr.io/damian-buho', vars.BASE_IMAGE_DEFAULT_VERSION || 'latest') }}
   O9S_LOKI_IMAGE: ${{ vars.O9S_LOKI_IMAGE || format('{0}/o9s/loki:{1}', vars.SOURCE_DOCKER_REGISTRY || 'ghcr.io/damian-buho', vars.BASE_IMAGE_DEFAULT_VERSION || 'latest') }}
-  PF_CLI_IMAGE: ${{ vars.PF_CLI_IMAGE || format('{0}/projectfile/cli:{1}', vars.SOURCE_DOCKER_REGISTRY || 'ghcr.io/damian-buho', vars.BASE_IMAGE_DEFAULT_VERSION || 'latest') }}
+  PF_CLI_IMAGE: ${{ vars.PF_CLI_IMAGE || format('{0}/cli:{1}', vars.SOURCE_DOCKER_REGISTRY || 'ghcr.io/projectfile-org', vars.BASE_IMAGE_DEFAULT_VERSION || 'latest') }}
 jobs:
   check-outdated:
     runs-on: ubuntu-26.04
@@ -43,7 +43,7 @@ jobs:
             ci-cache-go-
       - name: check-outdated-go
         if: vars.CI_SKIP_CHECK_OUTDATED != 'true' && vars.CI_SKIP_CHECK_OUTDATED_GO != 'true'
-        uses: projectfile-org/actions/run-tool@994493ff42fc5491d6d39b793af9a54d7e352a15 # v1
+        uses: projectfile-org/actions/run-tool@a6b99b0a61942c764e9c40e6c7089737675eda8e # v1
         with:
           image: ${{ vars.D9T_GO_TOOLS_IMAGE || format('{0}/d9t/go-tools', vars.SOURCE_DOCKER_REGISTRY || 'ghcr.io/damian-buho') }}
           version: ${{ env.M6E_TAG }}
