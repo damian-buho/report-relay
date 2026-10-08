@@ -24,6 +24,7 @@ includes:
   - .makefile/b19/images/ubuntu.yaml
   - .makefile/b19/traits/attested-images.yaml
   - .makefile/b19/traits/signed-images.yaml
+  - .makefile/container/traits/malware.yaml
   - .makefile/container/traits/readme-service.yaml
   - .makefile/library/languages/go.yaml
   - .makefile/library/traits/go-binary.yaml
