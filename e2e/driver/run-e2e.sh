@@ -74,7 +74,7 @@ expect204 'application/tlsrpt+json' '{"organization-name":"dbuho.me","contact-in
 log "synthetic matrix accepted"
 START=$(( ($(date +%s) - 600) * 1000000000 ))
 query() { curl -s -m 10 -H "X-Scope-OrgID: ${TENANT}" -G "${LOKI_URL}/loki/api/v1/query_range" --data-urlencode "query=$1" --data-urlencode "start=${START}"; }
-wait_for() { for _ in $(seq 1 45); do query "$1" | grep -q "${MARKER}" && return 0; sleep 2; done; return 1; }
+wait_for() { for _ in $(seq 1 45); do grep -q "${MARKER}" <<<"$(query "$1")" && return 0; sleep 2; done; return 1; }
 wait_for "{service_name=\"report-relay\"} |= \"${MARKER}\"" || fail "marker never reached Loki"
 log "marker reached Loki"
 wait_for "{service_name=\"report-relay\"} |= \"/m/${MARKER}/\"" || fail "no line carries the throwaway page path; the browser sent nothing"

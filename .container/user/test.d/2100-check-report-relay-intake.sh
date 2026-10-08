@@ -77,7 +77,7 @@ for attempt in $(seq 1 30); do
   response=$(curl -s -m 10 -H "X-Scope-OrgID: ${TENANT}" \
     -G "${LOKI_URL}/loki/api/v1/query_range" \
     --data-urlencode "query=${QUERY}" --data-urlencode "start=${START}" || true)
-  if printf '%s' "${response}" | grep -q "${MARKER}"; then
+  if grep -q "${MARKER}" <<<"${response}"; then
     b19-log good "E2E" "$(_p "marker %s reached Loki after %s attempt(s)" "${MARKER}" "${attempt}")"
     found=1
     break
@@ -96,7 +96,7 @@ LABELLED=$(curl -s -m 10 -H "X-Scope-OrgID: ${TENANT}" \
   -G "${LOKI_URL}/loki/api/v1/query_range" \
   --data-urlencode "query={service_name=\"report-relay\", event_name=\"csp-violation\", event_domain=\"browser\"} |= \"${MARKER}\"" \
   --data-urlencode "start=${START}" || true)
-printf '%s' "${LABELLED}" | grep -q "${MARKER}" \
+grep -q "${MARKER}" <<<"${LABELLED}" \
   || fail "the line landed but is not selectable by {event_name, event_domain}; a query for the report type would return nothing"
 
 echo "Report Relay record reached Loki labelled as the fleet queries expect"
