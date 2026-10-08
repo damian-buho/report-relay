@@ -24,6 +24,7 @@ includes:
   - .makefile/b19/images/ubuntu.yaml
   - .makefile/b19/traits/attested-images.yaml
   - .makefile/b19/traits/signed-images.yaml
+  - .makefile/b19/traits/torrent-image.yaml
   - .makefile/container/traits/malware.yaml
   - .makefile/container/traits/readme-service.yaml
   - .makefile/library/languages/go.yaml
@@ -171,15 +172,6 @@ org:
               GOOS:
                 - linux
         gsa:
-          matrix:
-            axes:
-              GOARCH:
-                - amd64
-                - arm64
-                - riscv64
-              GOOS:
-                - linux
-        binaries-are-released:
           matrix:
             axes:
               GOARCH:
