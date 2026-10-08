@@ -6,7 +6,7 @@
 
 set -eu
 
-# build-binaries.sh — cross-compile report-relay for one GOOS/GOARCH, writing dist/report-relay-<goos>-<goarch>.
+# build-binaries.sh — cross-compile report-relay for one GOOS/GOARCH, writing dist/report-relay-<os>-<uname -m>.
 
 version="${1:-${GITHUB_REF_NAME:-}}"
 case "${version}" in
@@ -17,7 +17,7 @@ hostos="$(go env GOHOSTOS)"   # the real host even under a cross-compile
 hostarch="$(go env GOHOSTARCH)"
 goos="${GOOS:-${hostos}}"     # the matrix sets these per cell; unset means a host-native build
 goarch="${GOARCH:-${hostarch}}"
-out="dist/report-relay-${goos}-${goarch}"
+out="$(GOOS="${goos}" GOARCH="${goarch}" .makefile/core/scripts/asset-name.sh dist/report-relay)"
 
 log() { printf '[build-binaries] %s\n' "$*" >&2; }
 log "building report-relay ${version} for ${goos}/${goarch}"
