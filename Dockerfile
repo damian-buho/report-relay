@@ -61,8 +61,7 @@ ARG M6E_NEAR_CACHE_HOST=""
 ARG M6E_PROJECT
 ARG TARGETARCH
 
-ENV M6E_VERSION=${M6E_VERSION}                \
-    REPORT_RELAY_LOG_LEVEL=info               \
+ENV REPORT_RELAY_LOG_LEVEL=info               \
     REPORT_RELAY_HTTP_PORT=8080               \
     REPORT_RELAY_ADMIN_PORT=8081              \
     REPORT_RELAY_MAX_BODY_BYTES=65536         \
@@ -105,6 +104,7 @@ RUN --mount=type=bind,from=fetch,source=.,target=/fetch                         
     --mount=type=cache,target=${B19_DOWNLOAD_PATH},sharing=shared,uid=${B19_UID},gid=${B19_GID}     \
     --mount=type=tmpfs,target=${B19_TEMP_PATH}                                                      \
     build-stage user
+ENV M6E_VERSION=${M6E_VERSION}
 
 # ENTRYPOINT ["entrypoint.d"] is inherited
 # HEALTHCHECK CMD ["healthcheck.d"] is inherited
