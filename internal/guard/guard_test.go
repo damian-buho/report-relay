@@ -83,6 +83,28 @@ func TestDecodeAcceptsShallowNesting(t *testing.T) {
 	}
 }
 
+func TestDecodeAcceptsManySiblingsUnderTheDepthCap(t *testing.T) {
+	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 8, MaxBodyKeys: 512}
+	body := []byte("{" + strings.Repeat(`"a":{},`, 199) + `"b":0}`)
+	var dst map[string]any
+	if err := Decode(body, &dst, limits); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+}
+
+func TestDecodeRejectsNestingOnePastTheDepthCap(t *testing.T) {
+	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 8, MaxBodyKeys: 512}
+	atCap := []byte(strings.Repeat(`{"a":`, 8) + `1` + strings.Repeat(`}`, 8))
+	var dst map[string]any
+	if err := Decode(atCap, &dst, limits); err != nil {
+		t.Fatalf("a body exactly at the cap was refused: %v", err)
+	}
+	pastCap := []byte(strings.Repeat(`{"a":`, 9) + `1` + strings.Repeat(`}`, 9))
+	if err := Decode(pastCap, &dst, limits); !errors.Is(err, ErrTooDeep) {
+		t.Fatalf("err = %v, want ErrTooDeep", err)
+	}
+}
+
 func TestDecodeRejectsBadJSON(t *testing.T) {
 	var dst map[string]any
 	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 16, MaxBodyKeys: 16}

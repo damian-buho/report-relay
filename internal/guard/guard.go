@@ -317,6 +317,9 @@ func checkShape(body []byte, limits Limits) error {
 				}
 				stack = append(stack, frame{object: delim == '{', key: true})
 			case '}', ']':
+				if depth > 0 {
+					depth-- // a close returns the walk to the parent level
+				}
 				stack = popFrame(stack)
 			}
 			continue

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -284,6 +285,27 @@ func TestReportingAPIBatchOverTheArrayCapIsRejected(t *testing.T) {
 	]`)
 	if _, err := Decode(MediaReportingAPI, body, limits, false); !errors.Is(err, guard.ErrArrayTooLong) {
 		t.Fatalf("err = %v, want ErrArrayTooLong on the request path", err)
+	}
+}
+
+func TestReportingAPIBatchOfTwentyIsAccepted(t *testing.T) {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i := range 20 {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"type":"csp-violation","age":` + strconv.Itoa(i) +
+			`,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/",` +
+			`"effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}}`)
+	}
+	b.WriteByte(']')
+	reports, err := Decode(MediaReportingAPI, []byte(b.String()), testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if len(reports) != 20 {
+		t.Errorf("got %d reports, want 20", len(reports))
 	}
 }
 
