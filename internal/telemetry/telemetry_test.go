@@ -176,6 +176,52 @@ func TestNewWithoutEndpointEmitsToWriter(t *testing.T) {
 	}
 }
 
+// reportsOf builds bare reports of the given types, which is all the queue gate looks at.
+func reportsOf(types ...string) []intake.Report {
+	out := make([]intake.Report, 0, len(types))
+	for _, reportType := range types {
+		out = append(out, intake.Report{
+			Type:   reportType,
+			Domain: intake.DomainBrowser,
+			Source: intake.SourceReportingAPI,
+		})
+	}
+	return out
+}
+
+func TestEmitBatchTakesTheWholeBatchOrNothing(t *testing.T) {
+	cfg := testConfig()
+	cfg.QueueSize = 2
+	cfg.BatchTimeout = time.Hour
+	reader := sdkmetric.NewManualReader()
+	em, err := NewWithExporters(cfg, stubExporter{}, reader)
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	if em.EmitBatch(context.Background(), reportsOf("deprecation", "deprecation", "deprecation")) {
+		t.Error("a batch past the queue was accepted")
+	}
+	if got := em.queued.Load(); got != 0 {
+		t.Errorf("queued = %d after a refused batch, want nothing claimed", got)
+	}
+	if !em.EmitBatch(context.Background(), reportsOf("deprecation", "deprecation")) {
+		t.Fatal("a batch the queue takes whole was refused")
+	}
+	if got := em.queued.Load(); got != 2 {
+		t.Errorf("queued = %d, want the two claimed slots", got)
+	}
+	if em.EmitBatch(context.Background(), reportsOf("coop")) {
+		t.Error("a single report was accepted past the claimed slots")
+	}
+	if err := em.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if got := em.queued.Load(); got != 0 {
+		t.Errorf("queued = %d after the flush, want the slots released", got)
+	}
+}
+
 func TestNewFallsBackToStdoutWithoutEndpoint(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")

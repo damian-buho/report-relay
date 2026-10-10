@@ -425,6 +425,34 @@ func (g *gateExporter) Shutdown(context.Context) error { return nil }
 
 func (g *gateExporter) ForceFlush(context.Context) error { return nil }
 
+// gatedRecorder blocks every export until released and then keeps what it was given, so a test can prove which records actually left the queue.
+type gatedRecorder struct {
+	release chan struct{}
+	mu      sync.Mutex
+	records []sdklog.Record
+}
+
+func (g *gatedRecorder) Export(ctx context.Context, batch []sdklog.Record) error {
+	select {
+	case <-g.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.records = append(g.records, batch...)
+	return nil
+}
+
+func (g *gatedRecorder) Shutdown(context.Context) error   { return nil }
+func (g *gatedRecorder) ForceFlush(context.Context) error { return nil }
+
+func (g *gatedRecorder) Records() []sdklog.Record {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.records)
+}
+
 func TestAFullQueueSignalsBackpressure(t *testing.T) {
 	cfg := testConfig()
 	cfg.QueueSize = 2
@@ -462,6 +490,66 @@ func TestAFullQueueSignalsBackpressure(t *testing.T) {
 		t.Error("no queue-full drop was counted while the exporter was blocked")
 	}
 	close(gate.release)
+}
+
+// fiveReports is a Reporting API batch one report past a two-slot queue, so a refusal covers the whole batch or the sender's retry delivers the prefix twice.
+const fiveReports = `[
+  {"type":"csp-violation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/","effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}},
+  {"type":"deprecation","age":2,"url":"https://beta.dbuho.me/legacy","body":{"id":"websql","message":"WebSQL is deprecated"}},
+  {"type":"network-error","age":3,"url":"https://beta.dbuho.me/api","body":{"phase":"dns","type":"dns.address_changed"}},
+  {"type":"coop","age":4,"url":"https://beta.dbuho.me/","body":{"disposition":"enforce","effectivePolicy":"same-origin-allow-popups","type":"navigation-to-response"}},
+  {"type":"integrity-violation","age":5,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/","blockedURL":"https://evil.example/x.js"}}
+]`
+
+func TestABatchTheQueueCannotTakeIsRefusedWhole(t *testing.T) {
+	cfg := testConfig()
+	cfg.QueueSize = 2
+	cfg.BatchTimeout = time.Hour
+	sink := &gatedRecorder{release: make(chan struct{})}
+	reader := sdkmetric.NewManualReader()
+	em, err := telemetry.NewWithExporters(cfg, sink, reader)
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := New(cfg, log, em, func() bool { return true })
+	// Two slots for a five-report batch: the refusal must cover the batch the sender is about to retry.
+	rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, fiveReports)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429 for a batch past the queue", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("a 429 without Retry-After leaves the client guessing")
+	}
+	if got := droppedByReason(t, reader, telemetry.ReasonQueueFull); got != 5 {
+		t.Errorf("queue-full drops = %d, want one per report in the batch", got)
+	}
+	if got := counterTotal(t, reader, "report.relay.accepted", nil); got != 0 {
+		t.Errorf("accepted = %d, want nothing counted as queued", got)
+	}
+	// Nothing may stay enqueued, and the exporter is the proof: only a queued record ever reaches it.
+	close(sink.release)
+	if err := em.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if got := len(sink.Records()); got != 0 {
+		t.Errorf("exporter received %d records, want none of the refused batch", got)
+	}
+}
+
+func TestABatchThatFitsIsAcceptedWhole(t *testing.T) {
+	srv, sink, sinkEmitter := testServer(t, testConfig())
+	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, fiveReports); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 for a batch the queue takes", rec.Code)
+	}
+	records := sink.Records(t, sinkEmitter)
+	if len(records) != 5 {
+		t.Fatalf("records = %d, want 5", len(records))
+	}
+	if records[0].EventName() != "csp-violation" || records[4].EventName() != "integrity-violation" {
+		t.Errorf("first = %q, last = %q, want the batch order kept", records[0].EventName(), records[4].EventName())
+	}
 }
 
 func TestExportFailureNeverBlocksIntake(t *testing.T) {
@@ -674,8 +762,9 @@ func TestDisallowedOriginGetsNoCORSHeader(t *testing.T) {
 	}
 }
 
-// droppedByReason sums the dropped counter for one reason from a manual reader.
-func droppedByReason(t *testing.T, reader *sdkmetric.ManualReader, reason string) int64 {
+// counterTotal sums one named counter from a manual reader over the data
+// points a predicate keeps, so a test can narrow by attribute.
+func counterTotal(t *testing.T, reader *sdkmetric.ManualReader, name string, keep func(attribute.Set) bool) int64 {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(context.Background(), &rm); err != nil {
@@ -684,7 +773,7 @@ func droppedByReason(t *testing.T, reader *sdkmetric.ManualReader, reason string
 	var total int64
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name != "report.relay.dropped" {
+			if m.Name != name {
 				continue
 			}
 			sum, ok := m.Data.(metricdata.Sum[int64])
@@ -692,11 +781,21 @@ func droppedByReason(t *testing.T, reader *sdkmetric.ManualReader, reason string
 				continue
 			}
 			for _, dp := range sum.DataPoints {
-				if v, ok := dp.Attributes.Value(attribute.Key("reason")); ok && v.AsString() == reason {
-					total += dp.Value
+				if keep != nil && !keep(dp.Attributes) {
+					continue
 				}
+				total += dp.Value
 			}
 		}
 	}
 	return total
+}
+
+// droppedByReason sums the dropped counter for one reason from a manual reader.
+func droppedByReason(t *testing.T, reader *sdkmetric.ManualReader, reason string) int64 {
+	t.Helper()
+	return counterTotal(t, reader, "report.relay.dropped", func(attrs attribute.Set) bool {
+		v, ok := attrs.Value(attribute.Key("reason"))
+		return ok && v.AsString() == reason
+	})
 }

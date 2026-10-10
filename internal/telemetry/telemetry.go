@@ -263,22 +263,46 @@ func (e *Emitter) ExportHealthy() bool {
 // while the estimated backlog is at capacity the report is counted queue-full
 // and never enqueued, so the drop has a metric and the SDK queue never fills.
 func (e *Emitter) Emit(ctx context.Context, r intake.Report) bool {
-	r.Type = intake.SanitizeType(r.Type)
+	if !e.claim(1) {
+		reportType := intake.SanitizeType(r.Type)
+		e.countQueueFull(ctx, reportType)
+		slog.Warn("queue full, report dropped", "report_type", reportType, "queue_size", e.queueSize)
+		return false
+	}
+	e.emit(ctx, r)
+	return true
+}
+
+// EmitBatch queues a whole batch or none of it: the slots are claimed in one atomic step, so a 429 leaves nothing enqueued for the sender's retry to deliver twice; Emit stays the per-record gate for a caller outside a batch.
+func (e *Emitter) EmitBatch(ctx context.Context, reports []intake.Report) bool {
+	if !e.claim(len(reports)) {
+		for i := range reports {
+			e.countQueueFull(ctx, intake.SanitizeType(reports[i].Type))
+		}
+		return false
+	}
+	for i := range reports {
+		e.emit(ctx, reports[i])
+	}
+	return true
+}
+
+// claim reserves n queue slots in one atomic step, so concurrent batches cannot both pass on the last slots and a burst cannot overshoot the bound.
+func (e *Emitter) claim(n int) bool {
 	for {
-		// The check and the claim are one atomic step, so a burst cannot overshoot the bound.
 		backlog := e.queued.Load()
-		if backlog >= int64(e.queueSize) {
-			e.dropped.Add(ctx, 1, metric.WithAttributes(
-				attribute.String("reason", ReasonQueueFull),
-				attribute.String("report_type", r.Type),
-			))
-			slog.Warn("queue full, report dropped", "report_type", r.Type, "queue_size", e.queueSize)
+		if backlog+int64(n) > int64(e.queueSize) {
 			return false
 		}
-		if e.queued.CompareAndSwap(backlog, backlog+1) {
-			break
+		if e.queued.CompareAndSwap(backlog, backlog+int64(n)) {
+			return true
 		}
 	}
+}
+
+// emit queues one report whose slot is already claimed as one log record.
+func (e *Emitter) emit(ctx context.Context, r intake.Report) {
+	r.Type = intake.SanitizeType(r.Type)
 	now := time.Now()
 	var record log.Record
 	record.SetTimestamp(now)
@@ -309,7 +333,14 @@ func (e *Emitter) Emit(ctx context.Context, r intake.Report) bool {
 		record.AddAttributes(attribute.String("report."+key, stringify(val)))
 	}
 	e.logger.Emit(ctx, record)
-	return true
+}
+
+// countQueueFull counts one report the queue gate refused, labelled with its reason and sanitized type so the three counters cannot disagree.
+func (e *Emitter) countQueueFull(ctx context.Context, reportType string) {
+	e.dropped.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("reason", ReasonQueueFull),
+		attribute.String("report_type", reportType),
+	))
 }
 
 // hostOf returns the host of a URL for the url_host attribute. Parsing is

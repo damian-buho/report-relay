@@ -61,9 +61,11 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
   redacted across the whole depth `MAX_JSON_DEPTH` admits, so `KEEP_QUERY=false`
   strips query, fragment and userinfo wherever a body hides them.
 - Backpressure: the emitter gates admissions on the queue size with an atomic
-  claim (no overshoot under bursts) and counts `queue-full` drops itself;
-  three consecutive export failures trip `/readyz` (consecutive, not windowed:
-  an exporter answering at all is not dead).
+  claim (no overshoot under bursts) and counts `queue-full` drops itself; the
+  HTTP path claims every slot a batch needs in one step, so a 429 leaves
+  nothing enqueued for the sender’s retry to deliver twice; three consecutive
+  export failures trip `/readyz` (consecutive, not windowed: an exporter
+  answering at all is not dead).
 - Startup validation refuses `burst < 1`, `rps <= 0` and ports outside 1025–65535.
 - TLS-RPT yields one record per failure detail (individual) or per result type
   (aggregate); that mapping is the decided answer to the spec’s open question.

@@ -226,21 +226,19 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 			writeGuardError(w, reason)
 			return
 		}
-		dropped := false
 		for _, report := range reports {
 			s.emitter.CountReceived(r.Context(), report.Type, report.Domain)
-			if s.emitter.Emit(r.Context(), report) {
-				s.emitter.CountAccepted(r.Context(), report.Type, report.Domain)
-			} else {
-				dropped = true
-			}
 		}
-		if dropped {
-			s.log.Warn("queue full, batch not fully accepted", "source", source,
+		// One claim for the whole batch: a 429 must leave nothing enqueued for the sender's retry to deliver twice.
+		if !s.emitter.EmitBatch(r.Context(), reports) {
+			s.log.Warn("queue full, batch refused", "source", source,
 				"client_ip", clientIP, "reports", len(reports))
 			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
+		}
+		for _, report := range reports {
+			s.emitter.CountAccepted(r.Context(), report.Type, report.Domain)
 		}
 		s.log.Debug("reports accepted", "source", source, "client_ip", clientIP,
 			"reports", len(reports), "bytes", len(body))
