@@ -140,34 +140,28 @@ func redactURL(value string) string {
 	return u.String()
 }
 
-// redactBody walks a decoded report body and redacts every URL-shaped field.
-// The walk recurses into nested objects and arrays, bounded by maxRedactDepth,
-// because a token can hide below the top level.
-func redactBody(body map[string]any, keepQuery bool) {
-	redactValue(body, keepQuery, 0)
+// redactBody walks a decoded report body and redacts every URL-shaped field. The walk is bounded by maxDepth, the same cap the shape guard enforced, so no field a legal body carries escapes it.
+func redactBody(body map[string]any, keepQuery bool, maxDepth int) {
+	redactValue(body, keepQuery, 0, maxDepth)
 }
 
-// maxRedactDepth bounds the redaction walk. Bodies already passed the JSON
-// depth guard, so this is strictly smaller and never the limiting factor.
-const maxRedactDepth = 16
-
 // redactValue redacts one level of a decoded body, descending while depth allows.
-func redactValue(val any, keepQuery bool, depth int) {
+func redactValue(val any, keepQuery bool, depth, maxDepth int) {
 	switch node := val.(type) {
 	case map[string]any:
 		for key, child := range node {
 			if s, ok := child.(string); ok && urlFields[key] && !keepQuery {
 				node[key] = redactURL(s)
-			} else if depth < maxRedactDepth {
-				redactValue(child, keepQuery, depth+1)
+			} else if depth < maxDepth {
+				redactValue(child, keepQuery, depth+1, maxDepth)
 			}
 		}
 	case []any:
-		if depth >= maxRedactDepth {
+		if depth >= maxDepth {
 			return
 		}
 		for _, child := range node {
-			redactValue(child, keepQuery, depth+1)
+			redactValue(child, keepQuery, depth+1, maxDepth)
 		}
 	}
 }

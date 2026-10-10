@@ -309,6 +309,44 @@ func TestReportingAPIBatchOfTwentyIsAccepted(t *testing.T) {
 	}
 }
 
+func TestDeeplyNestedURLIsRedacted(t *testing.T) {
+	const levels = 20
+	deepBody := `[{"type":"attribution-reporting","age":1,"url":"https://beta.dbuho.me/","body":` +
+		strings.Repeat(`{"nested":`, levels) +
+		`{"documentURL":"https://beta.dbuho.me/a?token=secret#frag"}` + strings.Repeat(`}`, levels) + `}]`
+	reports, err := Decode(MediaReportingAPI, []byte(deepBody), testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	node := reports[0].Body
+	for range levels {
+		node = node["nested"].(map[string]any)
+	}
+	const redacted = "https://beta.dbuho.me/a"
+	if node["documentURL"] != redacted {
+		t.Errorf("deep documentURL = %v, want %q", node["documentURL"], redacted)
+	}
+}
+
+func TestDeeplyNestedURLSurvivesKeepQuery(t *testing.T) {
+	const levels = 20
+	deepBody := `[{"type":"attribution-reporting","age":1,"url":"https://beta.dbuho.me/","body":` +
+		strings.Repeat(`{"nested":`, levels) +
+		`{"documentURL":"https://beta.dbuho.me/a?token=secret#frag"}` + strings.Repeat(`}`, levels) + `}]`
+	reports, err := Decode(MediaReportingAPI, []byte(deepBody), testLimits(), true)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	node := reports[0].Body
+	for range levels {
+		node = node["nested"].(map[string]any)
+	}
+	const kept = "https://beta.dbuho.me/a?token=secret#frag"
+	if node["documentURL"] != kept {
+		t.Errorf("deep documentURL = %v, want %q preserved by the opt-out", node["documentURL"], kept)
+	}
+}
+
 func TestMaliciousTypeBucketsAsUnknownWithRawKept(t *testing.T) {
 	body := []byte(`[{"type":"xss\"><svg onload=alert(1)>","age":1,"url":"https://beta.dbuho.me/",
 	  "body":{"documentURL":"https://beta.dbuho.me/"}}]`)
@@ -406,7 +444,7 @@ func TestRedactBodyRecursesIntoNesting(t *testing.T) {
 		"nested": map[string]any{"blockedURL": "https://evil.example/x.js?token=secret"},
 		"list":   []any{map[string]any{"documentURL": "https://beta.dbuho.me/a?token=secret"}},
 	}
-	redactBody(body, false)
+	redactBody(body, false, testLimits().MaxJSONDepth)
 	nested := body["nested"].(map[string]any)
 	if nested["blockedURL"] != testBlockedURL {
 		t.Errorf("nested blockedURL = %v, want the query dropped", nested["blockedURL"])

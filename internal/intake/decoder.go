@@ -63,7 +63,7 @@ func decodeReportingAPI(body []byte, limits guard.Limits, keepQuery bool) ([]Rep
 	}
 	reports := make([]Report, 0, len(envelopes))
 	for _, env := range envelopes {
-		report, err := reportingAPIReport(env, keepQuery)
+		report, err := reportingAPIReport(env, limits, keepQuery)
 		if err != nil {
 			return nil, err
 		}
@@ -85,7 +85,7 @@ func keepRawType(report *Report, raw string) {
 	report.Body["reported-type"] = raw
 }
 
-func reportingAPIReport(env reportEnvelope, keepQuery bool) (Report, error) {
+func reportingAPIReport(env reportEnvelope, limits guard.Limits, keepQuery bool) (Report, error) {
 	report := Report{
 		Type:   normalizeType(env.Type),
 		Domain: DomainBrowser,
@@ -110,7 +110,7 @@ func reportingAPIReport(env reportEnvelope, keepQuery bool) (Report, error) {
 	}
 	if !keepQuery {
 		report.URL = redactURL(report.URL)
-		redactBody(report.Body, keepQuery)
+		redactBody(report.Body, keepQuery, limits.MaxJSONDepth)
 	}
 	return report, nil
 }
@@ -175,7 +175,7 @@ func decodeCSPReport(body []byte, limits guard.Limits, keepQuery bool) ([]Report
 	}
 	if !keepQuery {
 		report.URL = redactURL(report.URL)
-		redactBody(report.Body, keepQuery)
+		redactBody(report.Body, keepQuery, limits.MaxJSONDepth)
 	}
 	if hook, ok := bodyHooks[report.Type]; ok {
 		if err := hook(report.Body); err != nil {
@@ -325,7 +325,7 @@ func decodeExpectCT(body []byte, limits guard.Limits, keepQuery bool) ([]Report,
 		Body:   env.ExpectCT,
 	}
 	if !keepQuery {
-		redactBody(report.Body, keepQuery)
+		redactBody(report.Body, keepQuery, limits.MaxJSONDepth)
 	}
 	return []Report{report}, nil
 }
@@ -361,7 +361,7 @@ func decodeHPKP(body []byte, limits guard.Limits, keepQuery bool) ([]Report, err
 		Body:   reportBody,
 	}
 	if !keepQuery {
-		redactBody(report.Body, keepQuery)
+		redactBody(report.Body, keepQuery, limits.MaxJSONDepth)
 	}
 	return []Report{report}, nil
 }
