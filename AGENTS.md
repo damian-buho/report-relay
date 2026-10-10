@@ -31,9 +31,9 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - `REPORT_RELAY_RATE_LIMIT_RPS=20`, `REPORT_RELAY_RATE_LIMIT_BURST=40`
 - `REPORT_RELAY_KEEP_QUERY=false`, `REPORT_RELAY_TRUST_PROXY=false`
 - `REPORT_RELAY_TRUSTED_PROXIES=""` — comma CIDRs or bare IPs honored as proxy peers; with the flag on but this empty, forwarded headers stay ignored, and a bad entry refuses to start
-- `REPORT_RELAY_EXPORT_TIMEOUT=10s`, `REPORT_RELAY_SHUTDOWN_TIMEOUT=15s`
+- `REPORT_RELAY_EXPORT_TIMEOUT=10s` is the per-attempt deadline of one OTLP export call; `REPORT_RELAY_SHUTDOWN_TIMEOUT=15s`
 - `REPORT_RELAY_QUEUE_SIZE=2048`, `REPORT_RELAY_BATCH_TIMEOUT=5s`
-- `REPORT_RELAY_EXPORT_INITIAL_BACKOFF=500ms`, `REPORT_RELAY_EXPORT_MAX_BACKOFF=30s`, `REPORT_RELAY_EXPORT_MAX_ELAPSED=2m`
+- `REPORT_RELAY_EXPORT_INITIAL_BACKOFF=500ms`, `REPORT_RELAY_EXPORT_MAX_BACKOFF=30s`, `REPORT_RELAY_EXPORT_MAX_ELAPSED=2m` — the backoff bounds the whole export call, so the batch processor and the metric reader run on the longer of `EXPORT_MAX_ELAPSED` and `EXPORT_TIMEOUT` and a retry loop is never cut short by a deadline meant for one attempt; startup refuses `EXPORT_MAX_ELAPSED < EXPORT_INITIAL_BACKOFF`
 - `REPORT_RELAY_ENABLE_REPORTING_API=true`, `REPORT_RELAY_ENABLE_CSP=true`, `REPORT_RELAY_ENABLE_TLSRPT=true`
 - `REPORT_RELAY_ENABLE_EXPECT_CT=true`, `REPORT_RELAY_ENABLE_HPKP=true`, `REPORT_RELAY_ENABLE_IODEF=true`
 - The exporter reads the standard `OTEL_EXPORTER_OTLP_*` variables itself

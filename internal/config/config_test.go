@@ -35,6 +35,17 @@ func TestValidateAcceptsSaneValues(t *testing.T) {
 	}
 }
 
+func TestExportBudgetTakesTheLongerKnob(t *testing.T) {
+	cfg := validConfig()
+	if got := cfg.ExportBudget(); got != cfg.ExportMaxElapsed {
+		t.Errorf("ExportBudget = %v, want the %v retry budget", got, cfg.ExportMaxElapsed)
+	}
+	cfg.ExportMaxElapsed = time.Second
+	if got := cfg.ExportBudget(); got != cfg.ExportTimeout {
+		t.Errorf("ExportBudget = %v, want the %v attempt deadline", got, cfg.ExportTimeout)
+	}
+}
+
 func TestValidateAcceptsTrustedProxyNets(t *testing.T) {
 	cfg := validConfig()
 	cfg.TrustProxy = true
@@ -59,6 +70,7 @@ func TestValidateRejectsFootguns(t *testing.T) {
 		"initial backoff": func(c *Config) { c.ExportInitialBackoff = 0 },
 		"max backoff":     func(c *Config) { c.ExportMaxBackoff = -time.Second },
 		"max elapsed":     func(c *Config) { c.ExportMaxElapsed = 0 },
+		"budget":          func(c *Config) { c.ExportMaxElapsed = c.ExportInitialBackoff / 2 },
 		"proxy":           func(c *Config) { c.TrustedProxyCIDRs = []string{"not-a-cidr"} },
 	}
 	for name, mutate := range cases {

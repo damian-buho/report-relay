@@ -9,8 +9,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -181,5 +186,82 @@ func TestNewFallsBackToStdoutWithoutEndpoint(t *testing.T) {
 	defer func() { _ = em.Shutdown(context.Background()) }()
 	if !em.ExportHealthy() {
 		t.Fatal("a fresh stdout emitter reads unhealthy")
+	}
+}
+
+// gateCollector answers 502 to every log upload until its gate opens, which is how a collector that is down for a while and then recovers behaves.
+type gateCollector struct {
+	open     time.Time
+	mu       sync.Mutex
+	attempts int
+	bodies   []string
+}
+
+func (g *gateCollector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/v1/logs" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.attempts++
+	if time.Now().Before(g.open) {
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	body, _ := io.ReadAll(r.Body)
+	g.bodies = append(g.bodies, string(body))
+	w.WriteHeader(http.StatusOK)
+}
+
+func (g *gateCollector) received(marker string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, body := range g.bodies {
+		if strings.Contains(body, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestAnExportOutlivingTheAttemptDeadlineDeliversTheBatch pins the precedence between the two knobs: the retry budget is longer, so the processor ceiling must be the budget rather than the attempt deadline.
+func TestAnExportOutlivingTheAttemptDeadlineDeliversTheBatch(t *testing.T) {
+	collector := &gateCollector{open: time.Now().Add(2500 * time.Millisecond)}
+	endpoint := httptest.NewServer(collector)
+	defer endpoint.Close()
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.URL)
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+
+	// The shipped relation between the knobs — a retry budget well past the per-attempt deadline — compressed so the suite stays in seconds.
+	cfg := testConfig()
+	cfg.BatchTimeout = 50 * time.Millisecond
+	cfg.ExportTimeout = time.Second
+	cfg.ExportInitialBackoff = 50 * time.Millisecond
+	cfg.ExportMaxBackoff = 500 * time.Millisecond
+	cfg.ExportMaxElapsed = 5 * time.Second
+	em, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	report := intake.Report{
+		Type:   "deprecation",
+		Domain: intake.DomainBrowser,
+		Source: intake.SourceReportingAPI,
+		URL:    "https://beta.dbuho.me/marker",
+		Body:   map[string]any{"effectiveDirective": "script-src"},
+	}
+	if !em.Emit(context.Background(), report) {
+		t.Fatal("Emit refused a report with room in the queue")
+	}
+	if err := em.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if !em.ExportHealthy() {
+		t.Error("a collector that recovered inside the budget reads as failed")
+	}
+	if !collector.received("deprecation") {
+		t.Errorf("attempts = %d, no accepted upload carried the report", collector.attempts)
 	}
 }

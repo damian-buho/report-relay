@@ -122,6 +122,11 @@ func (c Config) Log(log *slog.Logger) {
 	)
 }
 
+// ExportBudget is the ceiling one export call gets: the longer of the per-attempt EXPORT_TIMEOUT and the EXPORT_MAX_ELAPSED retry budget, because a processor timeout below the budget kills the retry loop while it still has budget left.
+func (c Config) ExportBudget() time.Duration {
+	return max(c.ExportTimeout, c.ExportMaxElapsed)
+}
+
 // Validate rejects values the service cannot run on. A negative burst bricks
 // the intake and a negative rate disables limiting, so both refuse to start
 // rather than fail open or closed at runtime.
@@ -164,6 +169,9 @@ func (c Config) Validate() error {
 		if d <= 0 {
 			errs = append(errs, fmt.Sprintf("%s %v: want > 0", name, d))
 		}
+	}
+	if c.ExportMaxElapsed < c.ExportInitialBackoff {
+		errs = append(errs, fmt.Sprintf("export max elapsed %v: want >= export initial backoff %v", c.ExportMaxElapsed, c.ExportInitialBackoff))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid configuration: %s", strings.Join(errs, "; "))

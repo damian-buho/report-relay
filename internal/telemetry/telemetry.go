@@ -71,12 +71,17 @@ func New(ctx context.Context, cfg config.Config) (*Emitter, error) {
 	if !OTLPConfigured() {
 		return NewWithExporters(cfg, newStdoutExporter(), sdkmetric.NewManualReader())
 	}
-	logExp, err := otlploghttp.New(ctx, otlploghttp.WithRetry(retryConfig(cfg)))
+	logExp, err := otlploghttp.New(ctx,
+		otlploghttp.WithRetry(retryConfig(cfg)),
+		otlploghttp.WithTimeout(cfg.ExportTimeout),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("otlp log exporter: %w", err)
 	}
 	metricExp, err := otlpmetrichttp.New(ctx,
-		otlpmetrichttp.WithRetry(otlpmetrichttp.RetryConfig(retryConfig(cfg))))
+		otlpmetrichttp.WithRetry(otlpmetrichttp.RetryConfig(retryConfig(cfg))),
+		otlpmetrichttp.WithTimeout(cfg.ExportTimeout),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("otlp metric exporter: %w", err)
 	}
@@ -117,7 +122,7 @@ func NewWithExporters(cfg config.Config, logExp sdklog.Exporter, reader sdkmetri
 			&countingExporter{inner: logExp, em: em},
 			sdklog.WithMaxQueueSize(queueSize),
 			sdklog.WithExportInterval(cfg.BatchTimeout),
-			sdklog.WithExportTimeout(cfg.ExportTimeout),
+			sdklog.WithExportTimeout(cfg.ExportBudget()),
 		)),
 	)
 	em.logger = em.logs.Logger("report-relay")
@@ -165,11 +170,11 @@ func quietSDKErrors() {
 }
 
 // newMeterProvider returns the periodic reader that pushes the service's own
-// metrics to the collector on an interval, bounded by the export timeout.
+// metrics to the collector on an interval, bounded by the export budget.
 func newMeterProvider(cfg config.Config, exp sdkmetric.Exporter) sdkmetric.Reader {
 	return sdkmetric.NewPeriodicReader(exp,
 		sdkmetric.WithInterval(cfg.BatchTimeout),
-		sdkmetric.WithTimeout(cfg.ExportTimeout),
+		sdkmetric.WithTimeout(cfg.ExportBudget()),
 	)
 }
 
