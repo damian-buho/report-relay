@@ -129,6 +129,7 @@ func TestCountItemsEnforcesTheArrayCap(t *testing.T) {
 
 func TestLimiterTripsAfterTheBurst(t *testing.T) {
 	limiter := NewLimiter(1, 3)
+	defer limiter.Close()
 	for i := range 3 {
 		if !limiter.Allow("203.0.113.1") {
 			t.Fatalf("request %d of the burst was refused", i+1)
@@ -143,18 +144,38 @@ func TestLimiterTripsAfterTheBurst(t *testing.T) {
 }
 
 func TestLimiterEvictsIdleClients(t *testing.T) {
-	limiter := NewLimiter(1000, 2)
-	limiter.ttl = time.Millisecond
+	limiter := newLimiter(1000, 2, time.Millisecond, time.Millisecond)
+	defer limiter.Close()
 	for range 10 {
 		limiter.Allow("198.51.100.7")
 	}
-	time.Sleep(5 * time.Millisecond)
-	limiter.ops = evictEvery - 1
-	if !limiter.Allow("198.51.100.7") {
-		t.Fatal("an idle client was refused after its bucket refilled")
+	limiter.Allow("198.51.100.8")
+	// The sweep runs on its own timer, so give it a few ticks rather than
+	// reaching into the table for an immediate answer.
+	deadline := time.Now().Add(2 * time.Second)
+	for limiter.Clients() > 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
 	}
 	if limiter.Clients() > 1 {
 		t.Errorf("clients = %d, want the idle entries evicted", limiter.Clients())
+	}
+	if !limiter.Allow("198.51.100.7") {
+		t.Error("an idle client was refused after its bucket was reclaimed")
+	}
+	if got := limiter.Clients(); got != 1 {
+		t.Errorf("clients = %d, want only the returning client", got)
+	}
+}
+
+func TestLimiterCloseStopsTheSweepWithoutGatingClients(t *testing.T) {
+	limiter := newLimiter(1, 1, time.Millisecond, time.Millisecond)
+	limiter.Close()
+	limiter.Close()
+	if !limiter.Allow("203.0.113.4") {
+		t.Error("a closed limiter refused a client: Close must stop the sweep, not the gate")
+	}
+	if limiter.Allow("203.0.113.4") {
+		t.Error("a closed limiter admitted past its burst")
 	}
 }
 
@@ -231,6 +252,7 @@ func mustNets(t *testing.T, cidrs ...string) []*net.IPNet {
 
 func TestLimiterBoundsTheTable(t *testing.T) {
 	limiter := NewLimiter(1000, 1000)
+	defer limiter.Close()
 	for i := range defaultMaxClients + 500 {
 		limiter.Allow("10.1." + strconv.Itoa(i/256) + "." + strconv.Itoa(i%256))
 	}
@@ -241,6 +263,7 @@ func TestLimiterBoundsTheTable(t *testing.T) {
 
 func TestLimiterClampsNonsense(t *testing.T) {
 	limiter := NewLimiter(-5, -2)
+	defer limiter.Close()
 	if limiter.burst != 1 {
 		t.Errorf("burst = %d, want the clamp to 1", limiter.burst)
 	}
@@ -254,6 +277,7 @@ func TestLimiterClampsNonsense(t *testing.T) {
 
 func TestLimiterEvictionKeepsAnActiveClient(t *testing.T) {
 	limiter := NewLimiter(1, 1)
+	defer limiter.Close()
 	limiter.max = 3
 	if !limiter.Allow("victim") {
 		t.Fatal("the victim's first request was refused")

@@ -72,6 +72,11 @@ func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready 
 	return s
 }
 
+// Close releases what no request owns: the rate limiter's idle sweep, which would otherwise tick for a stopped listener.
+func (s *Server) Close() {
+	s.limiter.Close()
+}
+
 // IntakeHandler returns the public intake mux.
 func (s *Server) IntakeHandler() http.Handler {
 	mux := http.NewServeMux()

@@ -45,18 +45,17 @@ type Limits struct {
 	MaxBodyKeys   int
 }
 
-// Limiter is a per-client-IP token bucket. The table is bounded and eviction
-// is amortized, so rotating source addresses costs memory, not latency. One
-// mutex guards the table: measured at ~200ns per Allow against an ~18µs
-// intake handler, so sharding would buy complexity, not throughput.
+// Limiter is a per-client-IP token bucket: the table is bounded and idle buckets are reclaimed by a sweep off the request path, so rotating source addresses cost memory, not latency. One mutex guards the table: measured at ~200ns per Allow against an ~18µs intake handler, so sharding would buy complexity, not throughput.
 type Limiter struct {
 	mu      sync.Mutex
 	buckets map[string]*client
 	rate    rate.Limit
 	burst   int
 	ttl     time.Duration
-	ops     uint64
+	every   time.Duration
 	max     int
+	stop    chan struct{}
+	once    sync.Once
 }
 
 // defaultMaxClients bounds the bucket table. Past it an insert evicts the
@@ -69,9 +68,11 @@ const defaultMaxClients = 10000
 // of distinct addresses cannot turn the scan itself into the bottleneck.
 const evictSample = 8
 
-// evictEvery amortizes the idle scan over this many requests. One scan is
-// O(n) under the lock; one scan per 64 requests is not.
-const evictEvery = 64
+// sweepFloor is the shortest gap between idle sweeps: the TTL shrinks with the refill time, so a high-rate low-burst config computes milliseconds, and sweeping that fast would make the scan the bottleneck it was moved off the request path to escape.
+const sweepFloor = time.Second
+
+// maxIdleTTL caps how long an idle bucket is held: the TTL is the time a bucket's debt takes to drain, so reclaiming past it costs the client nothing, but a high-burst config computes minutes and a table of minutes-old buckets leaves a new client to be evicted by sampling.
+const maxIdleTTL = 30 * time.Second
 
 type client struct {
 	lim    *rate.Limiter
@@ -88,13 +89,28 @@ func NewLimiter(rps float64, burst int) *Limiter {
 	if rps < 0 {
 		rps = 0
 	}
-	return &Limiter{
+	ttl := min(idleTTL(rps, burst), maxIdleTTL)
+	return newLimiter(rps, burst, ttl, max(ttl/2, sweepFloor))
+}
+
+// newLimiter builds the table and starts its idle sweep with explicit timings, so a test pins both without racing the goroutine that reads them.
+func newLimiter(rps float64, burst int, ttl, every time.Duration) *Limiter {
+	l := &Limiter{
 		buckets: make(map[string]*client),
 		rate:    rate.Limit(rps),
 		burst:   burst,
-		ttl:     time.Duration(float64(time.Second) / max(rps, 0.001) * float64(burst) * 2),
+		ttl:     ttl,
+		every:   every,
 		max:     defaultMaxClients,
+		stop:    make(chan struct{}),
 	}
+	go l.sweep()
+	return l
+}
+
+// idleTTL is the time one bucket takes to refill from empty, doubled: past it a reclaimed bucket would have been full anyway, so reclaiming costs the client nothing it had not already regained.
+func idleTTL(rps float64, burst int) time.Duration {
+	return time.Duration(float64(time.Second) / max(rps, 0.001) * float64(burst) * 2)
 }
 
 // Allow reports whether the next request from ip may proceed.
@@ -102,10 +118,6 @@ func (l *Limiter) Allow(ip string) bool {
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.ops++
-	if l.ops%evictEvery == 0 {
-		l.evict(now)
-	}
 	c, ok := l.buckets[ip]
 	if !ok {
 		if len(l.buckets) >= l.max {
@@ -123,6 +135,28 @@ func (l *Limiter) Clients() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return len(l.buckets)
+}
+
+// Close stops the idle sweep, so a limiter does not outlive the listener it served; it is safe to call twice, and Allow keeps working after it.
+func (l *Limiter) Close() {
+	l.once.Do(func() { close(l.stop) })
+}
+
+// sweep reclaims idle buckets on a timer instead of inside Allow: one walk is O(n) under the lock, and one walk every ttl/2 costs a bounded pause rather than a stall on every 64th request while the table is full.
+func (l *Limiter) sweep() {
+	timer := time.NewTimer(l.every)
+	defer timer.Stop()
+	for {
+		select {
+		case <-l.stop:
+			return
+		case now := <-timer.C:
+			l.mu.Lock()
+			l.evict(now)
+			l.mu.Unlock()
+			timer.Reset(l.every)
+		}
+	}
 }
 
 // evictOne drops the least-recently-seen entry of a small sample to make

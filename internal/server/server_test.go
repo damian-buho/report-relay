@@ -119,7 +119,9 @@ func testServer(t *testing.T, cfg config.Config) (*Server, *testSink, *telemetry
 	t.Helper()
 	emitter, sink := newTestEmitter(t, cfg)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return New(cfg, log, emitter, func() bool { return true }), sink, emitter
+	srv := New(cfg, log, emitter, func() bool { return true })
+	t.Cleanup(srv.Close)
+	return srv, sink, emitter
 }
 
 // oneReport is a Reporting API batch of one, the smallest body a rate-limit or
@@ -368,6 +370,7 @@ func TestReadyzReportsAnUnreachableExporter(t *testing.T) {
 	emitter, _ := newTestEmitter(t, testConfig())
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := New(testConfig(), log, emitter, func() bool { return false })
+	t.Cleanup(srv.Close)
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
 	srv.AdminHandler().ServeHTTP(rec, req)
@@ -466,6 +469,7 @@ func TestAFullQueueSignalsBackpressure(t *testing.T) {
 	defer func() { _ = em.Shutdown(context.Background()) }()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := New(cfg, log, em, func() bool { return true })
+	t.Cleanup(srv.Close)
 	handler := srv.IntakeHandler()
 	// The first requests take the two queue slots; everything past them is
 	// answered 429, so the sender retries instead of assuming delivery.
@@ -514,6 +518,7 @@ func TestABatchTheQueueCannotTakeIsRefusedWhole(t *testing.T) {
 	defer func() { _ = em.Shutdown(context.Background()) }()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := New(cfg, log, em, func() bool { return true })
+	t.Cleanup(srv.Close)
 	// Two slots for a five-report batch: the refusal must cover the batch the sender is about to retry.
 	rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, fiveReports)
 	if rec.Code != http.StatusTooManyRequests {
@@ -563,6 +568,7 @@ func TestExportFailureNeverBlocksIntake(t *testing.T) {
 	defer func() { _ = em.Shutdown(context.Background()) }()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := New(cfg, log, em, func() bool { return true })
+	t.Cleanup(srv.Close)
 	for range 5 {
 		if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, oneReport); rec.Code != http.StatusNoContent {
 			t.Fatalf("status = %d, want 204 with a dead collector", rec.Code)

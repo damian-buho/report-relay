@@ -121,6 +121,8 @@ func run() int {
 		log.Error("admin shutdown incomplete", "error", err)
 		exitCode = 1
 	}
+	// The limiter sweeps on its own timer, so stop it once the listener it served is gone.
+	srv.Close()
 	// The emitter drains on its own deadline: a slow listener drain must not
 	// starve the export queue of its own bounded wait.
 	emitCtx, emitCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
