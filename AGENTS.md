@@ -57,7 +57,9 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
   `^[a-z0-9-]{1,64}$` and buckets the rest as `unknown` (raw kept in the body).
 - Attribute safety: one body key becomes one log attribute, so the shape walk
   refuses bodies past `MAX_BODY_KEYS` with `413`; IODEF needs no such cap,
-  its decoder only keeps known fields into fixed lists.
+  its decoder only keeps known fields into fixed lists. URL-shaped values are
+  redacted across the whole depth `MAX_JSON_DEPTH` admits, so `KEEP_QUERY=false`
+  strips query, fragment and userinfo wherever a body hides them.
 - Backpressure: the emitter gates admissions on the queue size with an atomic
   claim (no overshoot under bursts) and counts `queue-full` drops itself;
   three consecutive export failures trip `/readyz` (consecutive, not windowed:
