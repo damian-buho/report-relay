@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	iodefMaxText = 1024
 	iodefMaxList = 8
 )
 
@@ -54,10 +53,7 @@ func decodeIODEF(body []byte, limits guard.Limits, keepQuery bool) ([]Report, er
 	flush := func() string {
 		s := strings.TrimSpace(text.String())
 		text.Reset()
-		if len(s) > iodefMaxText {
-			s = s[:iodefMaxText]
-		}
-		return s
+		return clipUTF8(s, maxTextBytes)
 	}
 	for {
 		tok, err := dec.Token()
@@ -182,11 +178,7 @@ func appendIODEF(list []string, s string) []string {
 }
 
 func clipIODEF(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) > iodefMaxText {
-		s = s[:iodefMaxText]
-	}
-	return s
+	return clipUTF8(strings.TrimSpace(s), maxTextBytes)
 }
 
 func iodefReport(inc *iodefIncident, keepQuery bool) Report {

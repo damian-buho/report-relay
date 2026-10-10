@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"kiota.ch/damian-buho/report-relay/internal/guard"
 )
@@ -26,6 +27,33 @@ const iodefFixture = `<?xml version="1.0" encoding="UTF-8"?>` +
 	`<Address category="ipv4-addr">93.184.216.34</Address></Node>` +
 	`<Service><Port>443</Port></Service></System></Flow></EventData>` +
 	`</Incident></IODEF-Document>`
+
+// TestIODEFDescriptionIsCutOnARuneBoundary pins the same clip the type paths
+// use: 1024 bytes leaves one byte inside a three-byte rune, and a description
+// is the longest free text an IODEF report carries.
+func TestIODEFDescriptionIsCutOnARuneBoundary(t *testing.T) {
+	body := `<IODEF-Document><Incident purpose="reporting"><IncidentID name="ca1.example.net">caa-1</IncidentID>` +
+		`<Description>` + strings.Repeat("€", 400) + `</Description>` +
+		`<EventData><Flow><System category="target"><Node><NodeName>` + iodefHost + `</NodeName></Node></System></Flow></EventData>` +
+		`</Incident></IODEF-Document>`
+	reports, err := Decode(MediaIODEF, []byte(body), testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	kept, ok := reports[0].Body["description"].(string)
+	if !ok {
+		t.Fatalf("description = %v, want the text in the body", reports[0].Body["description"])
+	}
+	if len(kept) > maxTextBytes {
+		t.Errorf("description is %d bytes, want at most %d", len(kept), maxTextBytes)
+	}
+	if !utf8.ValidString(kept) {
+		t.Error("description is not valid UTF-8, so a strict collector may refuse the export")
+	}
+	if got := utf8.RuneCountInString(kept); got != 341 {
+		t.Errorf("description keeps %d runes, want the 341 whole ones", got)
+	}
+}
 
 func TestIODEFMinimalReportIsAccepted(t *testing.T) {
 	reports, err := Decode(MediaIODEF, []byte(iodefFixture), testLimits(), false)

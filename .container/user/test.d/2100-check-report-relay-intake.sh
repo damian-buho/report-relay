@@ -61,31 +61,35 @@ TENANT="${O9S_LOKI_TENANT_ID:-o9s}"
 MARKER="probe-$(date +%s%N)"
 E2E_BODY='{"csp-report":{"document-uri":"https://beta.dbuho.me/'"$MARKER"'","violated-directive":"script-src","blocked-uri":"https://evil.example/x.js","effective-directive":"script-src"}}'
 
+# await_marker polls Loki for one marker and says how long it took. The
+# exporter batches on an interval, so the line is not there the instant the
+# intake answered. The window is epoch NANOSECONDS: a relative "0s" is
+# rejected by this Loki.
+await_marker() {
+  local marker="$1" attempt response START
+  START=$(( ($(date +%s) - 600) * 1000000000 ))
+  for attempt in $(seq 1 30); do
+    # A poll that times out is a poll that found nothing yet, not a reason to
+    # abort: the exporter and the collector are both still batching.
+    response=$(curl -s -m 10 -H "X-Scope-OrgID: ${TENANT}" \
+      -G "${LOKI_URL}/loki/api/v1/query_range" \
+      --data-urlencode "query={service_name=\"report-relay\"} |= \"${marker}\"" \
+      --data-urlencode "start=${START}" || true)
+    if grep -q "${marker}" <<<"${response}"; then
+      b19-log good "E2E" "$(_p "marker %s reached Loki after %s attempt(s)" "${marker}" "${attempt}")"
+      return 0
+    fi
+    b19-log info "E2E" "$(_p "marker %s not in Loki yet, attempt %s of 30" "${marker}" "${attempt}")"
+    sleep 1
+  done
+  return 1
+}
+
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${REPORT_RELAY_URL}/" \
   -H 'Content-Type: application/csp-report' --data "${E2E_BODY}")
 [ "${code}" = "204" ] || fail "end-to-end probe answered ${code}, expected 204"
 
-# The exporter batches on an interval, so the line is not there the instant the
-# intake answered. Poll, and report how long it took rather than sleeping blind.
-# The window is epoch NANOSECONDS: a relative "0s" is rejected by this Loki.
-START=$(( ($(date +%s) - 600) * 1000000000 ))
-QUERY="{service_name=\"report-relay\"} |= \"${MARKER}\""
-found=0
-for attempt in $(seq 1 30); do
-  # A poll that times out is a poll that found nothing yet, not a reason to abort:
-  # the exporter and the collector are both still batching.
-  response=$(curl -s -m 10 -H "X-Scope-OrgID: ${TENANT}" \
-    -G "${LOKI_URL}/loki/api/v1/query_range" \
-    --data-urlencode "query=${QUERY}" --data-urlencode "start=${START}" || true)
-  if grep -q "${MARKER}" <<<"${response}"; then
-    b19-log good "E2E" "$(_p "marker %s reached Loki after %s attempt(s)" "${MARKER}" "${attempt}")"
-    found=1
-    break
-  fi
-  b19-log info "E2E" "$(_p "marker %s not in Loki yet, attempt %s of 30" "${MARKER}" "${attempt}")"
-  sleep 1
-done
-[ "${found}" = "1" ] || fail "the report never reached Loki under marker ${MARKER} after 30 attempts"
+await_marker "${MARKER}" || fail "the report never reached Loki under marker ${MARKER} after 30 attempts"
 
 # The label contract, proved the way an operator uses it: the report type must
 # be SELECTABLE. event.name is only a Loki label because the record carries it
@@ -100,5 +104,23 @@ grep -q "${MARKER}" <<<"${LABELLED}" \
   || fail "the line landed but is not selectable by {event_name, event_domain}; a query for the report type would return nothing"
 
 echo "Report Relay record reached Loki labelled as the fleet queries expect"
+
+# ── End to end, the clipped value: a result type past the clip ──
+#
+# The label charset refuses this type, so the raw value rides the log body and
+# the clip shortens it at a rune boundary. A byte-count cut would emit half a
+# rune inside an OTLP string, and a collector entitled to valid UTF-8 may
+# refuse the whole export, so the marker not arriving is the failure here.
+
+UTF8_MARKER="${MARKER}-utf8"
+UTF8_TYPE="${UTF8_MARKER}u$(printf '€%.0s' $(seq 1 100))"
+UTF8_BODY='{"organization-name":"dbuho.me","report-id":"utf8","result-type":"'"${UTF8_TYPE}"'","failure-info":{"result-type":"cancelled"}}'
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${REPORT_RELAY_URL}/" \
+  -H 'Content-Type: application/tlsrpt+json' --data "${UTF8_BODY}")
+[ "${code}" = "204" ] || fail "non-ASCII result type answered ${code}, expected 204"
+
+await_marker "${UTF8_MARKER}" || fail "the clipped non-ASCII result type never reached Loki under marker ${UTF8_MARKER} after 30 attempts"
+
+echo "Report Relay clipped value survived the real collector into Loki"
 
 

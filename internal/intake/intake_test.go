@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"kiota.ch/damian-buho/report-relay/internal/guard"
 )
@@ -382,6 +383,52 @@ func TestUppercaseUnknownTypeIsFolded(t *testing.T) {
 	}
 	if reports[0].Type != "certificate-transparency" {
 		t.Errorf("type = %q, want the folded form", reports[0].Type)
+	}
+}
+
+// euroSign is a three-byte rune, and both truncation caps (256 and 1024 bytes)
+// leave one byte over, so a byte-count cut lands inside a rune. A collector is
+// entitled to refuse an OTLP string that is not valid UTF-8, so the clip has
+// to drop the partial rune instead of emitting a stray byte.
+func TestOverlongTypeIsCutOnARuneBoundary(t *testing.T) {
+	raw := strings.Repeat("€", 100)
+	body := []byte(`[{"type":"` + raw + `","age":1,"url":"https://beta.dbuho.me/"}]`)
+	reports, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	kept, ok := reports[0].Body["reported-type"].(string)
+	if !ok {
+		t.Fatalf("reported-type = %v, want the raw type kept in the body", reports[0].Body["reported-type"])
+	}
+	if len(kept) > maxTypeBytes {
+		t.Errorf("reported-type is %d bytes, want at most %d", len(kept), maxTypeBytes)
+	}
+	if !utf8.ValidString(kept) {
+		t.Error("reported-type is not valid UTF-8, so a strict collector may refuse the export")
+	}
+	if got := utf8.RuneCountInString(kept); got != 85 {
+		t.Errorf("reported-type keeps %d runes, want the 85 whole ones", got)
+	}
+}
+
+func TestOverlongTLSRPTResultTypeIsCutOnARuneBoundary(t *testing.T) {
+	resultType := strings.Repeat("€", 100)
+	body := []byte(`{"organization-name":"dbuho.me","report-id":"r1","result-type":"` + resultType + `",
+	  "failure-info":{"result-type":"` + resultType + `","failing-sessions":{"expired":3}}}`)
+	reports, err := Decode(MediaTLSRPTJSON, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	kept, ok := reports[0].Body["reported-type"].(string)
+	if !ok {
+		t.Fatalf("reported-type = %v, want the raw result type kept in the body", reports[0].Body["reported-type"])
+	}
+	if !utf8.ValidString(kept) {
+		t.Error("reported-type is not valid UTF-8, so a strict collector may refuse the export")
+	}
+	if got := utf8.RuneCountInString(kept); got != 85 {
+		t.Errorf("reported-type keeps %d runes, want the 85 whole ones", got)
 	}
 }
 
