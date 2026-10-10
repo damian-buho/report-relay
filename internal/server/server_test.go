@@ -592,6 +592,55 @@ func TestUnsupportedContentTypeCostsARateToken(t *testing.T) {
 	}
 }
 
+// preflight sends the OPTIONS request a browser sends before a cross-origin POST.
+func preflight(t *testing.T, handler http.Handler) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodOptions, "/", nil)
+	req.Header.Set("Origin", "https://beta.dbuho.me")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestPreflightCostsARateToken(t *testing.T) {
+	cfg := testConfig()
+	cfg.RateLimitRPS = 1
+	cfg.RateLimitBurst = 1
+	srv, _, _ := testServer(t, cfg)
+	handler := srv.IntakeHandler()
+	if rec := preflight(t, handler); rec.Code != http.StatusNoContent {
+		t.Fatalf("first status = %d, want 204", rec.Code)
+	}
+	rec := preflight(t, handler)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("second status = %d, want 429: a preflight must not bypass the limiter", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("a 429 without Retry-After leaves the client guessing")
+	}
+}
+
+// panicHandler stands in for a handler that panics on attacker input.
+func panicHandler(http.ResponseWriter, *http.Request) {
+	panic("boom")
+}
+
+// TestRecoverTurnsAPanickingHandlerIntoA500 pins the wrapper both intake routes run through, so a panic is a 500 rather than a dead process.
+func TestRecoverTurnsAPanickingHandlerIntoA500(t *testing.T) {
+	cfg := testConfig()
+	srv, _, _ := testServer(t, cfg)
+	mux := http.NewServeMux()
+	mux.HandleFunc("OPTIONS /", srv.recover(panicHandler))
+	req := httptest.NewRequest(http.MethodOptions, "/", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 from the recover wrapper", rec.Code)
+	}
+}
+
 func TestRateLimitAnswerCarriesRetryAfter(t *testing.T) {
 	cfg := testConfig()
 	cfg.RateLimitRPS = 1

@@ -75,7 +75,7 @@ func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready 
 // IntakeHandler returns the public intake mux.
 func (s *Server) IntakeHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("OPTIONS /", s.handlePreflight)
+	mux.HandleFunc("OPTIONS /", s.recover(s.handlePreflight))
 	mux.HandleFunc("POST /", s.recover(s.handleIntake))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.writeCORS(w, r)
@@ -84,8 +84,7 @@ func (s *Server) IntakeHandler() http.Handler {
 	return mux
 }
 
-// recover turns a panicking decode into a 500 instead of a dead process. The
-// intake parses attacker bytes on every request; insurance is cheap here.
+// recover turns a panicking handler into a 500 instead of a dead process: both intake routes parse attacker bytes on every request.
 func (s *Server) recover(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -101,6 +100,7 @@ func (s *Server) recover(next http.HandlerFunc) http.HandlerFunc {
 
 // AdminHandler returns the admin mux: process health and exporter readiness.
 func (s *Server) AdminHandler() http.Handler {
+	// Unguarded on purpose: no request-derived input reaches either handler.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -123,6 +123,10 @@ func (s *Server) AdminHandler() http.Handler {
 // allow-list means any origin; setting one narrows it.
 func (s *Server) handlePreflight(w http.ResponseWriter, r *http.Request) {
 	s.writeCORS(w, r)
+	// A preflight costs a token like a report POST: without one, a client that skips the 600s cache floods the verb the limiter never sees.
+	if _, allowed := s.allowClient(w, r); !allowed {
+		return
+	}
 	origin := r.Header.Get("Origin")
 	if origin != "" && !s.originAllowed(origin) {
 		w.WriteHeader(http.StatusForbidden)
@@ -154,18 +158,27 @@ func (s *Server) originAllowed(origin string) bool {
 	return slices.Contains(s.cfg.AllowedOrigins, origin)
 }
 
+// allowClient resolves the caller and spends one rate token, answering 429 with Retry-After itself when the token is refused; only the POST path counts the drop, because a preflight carries no report.
+func (s *Server) allowClient(w http.ResponseWriter, r *http.Request) (string, bool) {
+	clientIP := guard.ClientIP(r, s.cfg.TrustProxy, s.trusted)
+	if !s.limiter.Allow(clientIP) {
+		s.log.Warn("rate limited", "client_ip", clientIP,
+			"rate_limit_rps", s.cfg.RateLimitRPS, "burst", s.cfg.RateLimitBurst)
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+		return clientIP, false
+	}
+	return clientIP, true
+}
+
 // handleIntake routes on the media type and lets each format's handler apply
 // the guards it needs. The rate limit runs before the route lookup, so garbage
 // content types cost a token like everything else instead of bypassing it.
 func (s *Server) handleIntake(w http.ResponseWriter, r *http.Request) {
 	s.writeCORS(w, r)
-	clientIP := guard.ClientIP(r, s.cfg.TrustProxy, s.trusted)
-	if !s.limiter.Allow(clientIP) {
+	clientIP, allowed := s.allowClient(w, r)
+	if !allowed {
 		s.emitter.CountDropped(r.Context(), telemetry.ReasonRateLimited, "")
-		s.log.Warn("rate limited", "client_ip", clientIP,
-			"rate_limit_rps", s.cfg.RateLimitRPS, "burst", s.cfg.RateLimitBurst)
-		w.Header().Set("Retry-After", "1")
-		w.WriteHeader(http.StatusTooManyRequests)
 		return
 	}
 	mediaType := intake.MediaType(r.Header.Get("Content-Type"))
