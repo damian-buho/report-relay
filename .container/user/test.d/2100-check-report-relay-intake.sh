@@ -66,7 +66,7 @@ E2E_BODY='{"csp-report":{"document-uri":"https://beta.dbuho.me/'"$MARKER"'","vio
 # intake answered. The window is epoch NANOSECONDS: a relative "0s" is
 # rejected by this Loki.
 await_marker() {
-  local marker="$1" attempt response START
+  local marker="$1" attempt response
   START=$(( ($(date +%s) - 600) * 1000000000 ))
   for attempt in $(seq 1 30); do
     # A poll that times out is a poll that found nothing yet, not a reason to
