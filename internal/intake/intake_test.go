@@ -432,6 +432,30 @@ func TestOverlongTLSRPTResultTypeIsCutOnARuneBoundary(t *testing.T) {
 	}
 }
 
+func TestTLSRPTAggregateKeepsPrefixedResultType(t *testing.T) {
+	marker := "probe-1791668492760433374-utf8"
+	resultType := marker + "u" + strings.Repeat("€", 100)
+	body := []byte(`{"organization-name":"dbuho.me","report-id":"utf8","result-type":"` + resultType + `",
+	  "failure-info":{"result-type":"` + resultType + `"}}`)
+	reports, err := Decode(MediaTLSRPTJSON, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	kept, ok := reports[0].Body["reported-type"].(string)
+	if !ok {
+		t.Fatalf("reported-type = %v, want the raw result type kept in the body", reports[0].Body["reported-type"])
+	}
+	if !strings.Contains(kept, marker) {
+		t.Error("the clipped reported-type lost the marker prefix the e2e probe queries Loki for")
+	}
+	if len(kept) > maxTypeBytes {
+		t.Errorf("reported-type is %d bytes, want at most %d", len(kept), maxTypeBytes)
+	}
+	if !utf8.ValidString(kept) {
+		t.Error("reported-type is not valid UTF-8, so a strict collector may refuse the export")
+	}
+}
+
 func TestTLSRPTFailureDetailsOverTheCapAreRejected(t *testing.T) {
 	limits := guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 1, MaxBodyKeys: 512}
 	body := []byte(`{"organization-name":"dbuho.me","report-id":"r1","result-type":"individual",

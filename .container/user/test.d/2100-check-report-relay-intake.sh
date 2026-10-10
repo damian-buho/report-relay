@@ -114,7 +114,7 @@ echo "Report Relay record reached Loki labelled as the fleet queries expect"
 
 UTF8_MARKER="${MARKER}-utf8"
 UTF8_TYPE="${UTF8_MARKER}u$(printf '€%.0s' $(seq 1 100))"
-UTF8_BODY='{"organization-name":"dbuho.me","report-id":"utf8","result-type":"'"${UTF8_TYPE}"'","failure-info":{"result-type":"cancelled"}}'
+UTF8_BODY='{"organization-name":"dbuho.me","report-id":"utf8","result-type":"'"${UTF8_TYPE}"'","failure-info":{"result-type":"'"${UTF8_TYPE}"'"}}'
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${REPORT_RELAY_URL}/" \
   -H 'Content-Type: application/tlsrpt+json' --data "${UTF8_BODY}")
 [ "${code}" = "204" ] || fail "non-ASCII result type answered ${code}, expected 204"
