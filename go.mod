@@ -4,7 +4,7 @@
 
 module kiota.ch/damian-buho/report-relay
 
-go 1.26.7
+go 1.27.2
 
 require (
 	go.opentelemetry.io/otel v1.47.0
