@@ -233,6 +233,8 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 				errors.Is(err, guard.ErrTooManyKeys),
 				errors.Is(err, guard.ErrArrayTooLong):
 				reason = telemetry.ReasonTooLarge
+			case errors.Is(err, intake.ErrDisabled):
+				reason = telemetry.ReasonDisabled
 			case errors.Is(err, intake.ErrInvalidReport):
 				reason = telemetry.ReasonSchema
 			case errors.Is(err, intake.ErrNoReports), errors.Is(err, intake.ErrUnsupportedType):
@@ -266,6 +268,9 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 
 func writeGuardError(w http.ResponseWriter, reason string) {
 	switch reason {
+	case telemetry.ReasonDisabled:
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusServiceUnavailable)
 	case telemetry.ReasonTooLarge:
 		w.WriteHeader(http.StatusRequestEntityTooLarge)
 	case telemetry.ReasonUnsupported, telemetry.ReasonSchema:

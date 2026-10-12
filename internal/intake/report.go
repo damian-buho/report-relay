@@ -69,6 +69,7 @@ const (
 	DomainBrowser = "browser"
 	DomainMail    = "mail"
 	DomainCert    = "cert"
+	DomainContent = "content"
 )
 
 // The report type names and body field names the decoders and the schema hooks
@@ -91,6 +92,7 @@ const (
 	typeExpectCT             = "expect-ct"
 	typeHPKP                 = "hpkp"
 	typeIodef                = "iodef"
+	typeTypo                 = "typo"
 
 	fieldDocumentURL        = "documentURL"
 	fieldBlockedURL         = "blockedURL"

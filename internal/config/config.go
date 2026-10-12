@@ -43,6 +43,7 @@ type Config struct {
 	ExpectCTOn           bool
 	HPKPOn               bool
 	IODEFOn              bool
+	TypoOn               bool
 	QueueSize            int
 	BatchTimeout         time.Duration
 	ExportInitialBackoff time.Duration
@@ -77,6 +78,7 @@ func Load() Config {
 		ExpectCTOn:        envBoolOr("REPORT_RELAY_ENABLE_EXPECT_CT", true),
 		HPKPOn:            envBoolOr("REPORT_RELAY_ENABLE_HPKP", true),
 		IODEFOn:           envBoolOr("REPORT_RELAY_ENABLE_IODEF", true),
+		TypoOn:            envBoolOr("REPORT_RELAY_ENABLE_TYPO", true),
 		QueueSize:         envIntOr("REPORT_RELAY_QUEUE_SIZE", 2048),
 		BatchTimeout:      envDurationOr("REPORT_RELAY_BATCH_TIMEOUT", 5*time.Second),
 
@@ -119,6 +121,7 @@ func (c Config) Log(log *slog.Logger) {
 		"expect_ct", c.ExpectCTOn,
 		"hpkp", c.HPKPOn,
 		"iodef", c.IODEFOn,
+		"typo", c.TypoOn,
 	)
 }
 
@@ -134,6 +137,9 @@ func (c Config) Validate() error {
 	var errs []string
 	if c.TrustProxy && len(c.TrustedProxyCIDRs) == 0 {
 		slog.Warn("trust_proxy on with no trusted proxies: forwarded headers stay ignored")
+	}
+	if c.TypoOn && len(c.AllowedOrigins) == 0 {
+		slog.Warn("typo intake on with no allowed origins: any site can post typo reports", "flag", "REPORT_RELAY_ENABLE_TYPO", "allowed_origins", c.AllowedOrigins)
 	}
 	if _, err := guard.ParseTrustedProxies(c.TrustedProxyCIDRs); err != nil {
 		errs = append(errs, err.Error())

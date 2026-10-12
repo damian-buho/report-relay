@@ -124,3 +124,22 @@ await_marker "${UTF8_MARKER}" || fail "the clipped non-ASCII result type never r
 echo "Report Relay clipped value survived the real collector into Loki"
 
 
+
+# ── End to end, a typo report: the content domain is promoted like the browser one ──
+
+TYPO_MARKER="${MARKER}-typo"
+TYPO_BODY='[{"type":"typo","age":0,"url":"https://beta.dbuho.me/","body":{"selection":"'"${TYPO_MARKER}"'","prefix":"a","suffix":"b","lang":"uk"}}]'
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${REPORT_RELAY_URL}/" \
+  -H 'Content-Type: application/reports+json' --data "${TYPO_BODY}")
+[ "${code}" = "204" ] || fail "typo report answered ${code}, expected 204"
+
+await_marker "${TYPO_MARKER}" || fail "the typo report never reached Loki under marker ${TYPO_MARKER} after 30 attempts"
+
+TYPO_LABELLED=$(curl -s -m 10 -H "X-Scope-OrgID: ${TENANT}" \
+  -G "${LOKI_URL}/loki/api/v1/query_range" \
+  --data-urlencode "query={service_name=\"report-relay\", event_name=\"typo\", event_domain=\"content\"} |= \"${TYPO_MARKER}\"" \
+  --data-urlencode "start=${START}" || true)
+grep -q "${TYPO_MARKER}" <<<"${TYPO_LABELLED}" \
+  || fail "the typo line landed but is not selectable by {event_name=\"typo\", event_domain=\"content\"}"
+
+echo "Report Relay typo record reached Loki labelled as content/typo"

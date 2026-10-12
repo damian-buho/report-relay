@@ -36,6 +36,8 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - `REPORT_RELAY_EXPORT_INITIAL_BACKOFF=500ms`, `REPORT_RELAY_EXPORT_MAX_BACKOFF=30s`, `REPORT_RELAY_EXPORT_MAX_ELAPSED=2m` — the backoff bounds the whole export call, so the batch processor and the metric reader run on the longer of `EXPORT_MAX_ELAPSED` and `EXPORT_TIMEOUT` and a retry loop is never cut short by a deadline meant for one attempt; startup refuses `EXPORT_MAX_ELAPSED < EXPORT_INITIAL_BACKOFF`
 - `REPORT_RELAY_ENABLE_REPORTING_API=true`, `REPORT_RELAY_ENABLE_CSP=true`, `REPORT_RELAY_ENABLE_TLSRPT=true`
 - `REPORT_RELAY_ENABLE_EXPECT_CT=true`, `REPORT_RELAY_ENABLE_HPKP=true`, `REPORT_RELAY_ENABLE_IODEF=true`
+- `REPORT_RELAY_ENABLE_TYPO=true` — `typo` reports from `@damian-buho/report-typo`, domain `content`; off answers `503`, on with `REPORT_RELAY_ALLOWED_ORIGINS` empty warns at startup
+- `REPORT_RELAY_ALLOWED_ORIGINS=""` — comma CORS allow-list; empty allows any origin
 - The exporter reads the standard `OTEL_EXPORTER_OTLP_*` variables itself
 - With no OTLP endpoint named, records go to stdout as one JSON line each and
   `/readyz` stays green; `telemetry.OTLPConfigured` owns that switch

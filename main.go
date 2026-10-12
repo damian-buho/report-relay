@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"kiota.ch/damian-buho/report-relay/internal/config"
+	"kiota.ch/damian-buho/report-relay/internal/intake"
 	"kiota.ch/damian-buho/report-relay/internal/server"
 	"kiota.ch/damian-buho/report-relay/internal/telemetry"
 )
@@ -45,6 +46,7 @@ func run() int {
 		log.Error("invalid configuration", "error", err)
 		return 1
 	}
+	intake.RegisterTypo(cfg.TypoOn)
 
 	// SIGINT and SIGTERM cancel this context, so the HTTP servers and the
 	// telemetry pipelines unwind together instead of being killed mid-request.

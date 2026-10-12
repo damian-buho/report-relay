@@ -854,3 +854,13 @@ func droppedByReason(t *testing.T, reader *sdkmetric.ManualReader, reason string
 		return ok && v.AsString() == reason
 	})
 }
+
+func TestDisabledTypoAnswersServiceUnavailable(t *testing.T) {
+	intake.RegisterTypo(false)
+	t.Cleanup(func() { intake.RegisterTypo(true) })
+	srv, _, _ := testServer(t, testConfig())
+	rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, `[{"type":"typo","url":"https://beta.dbuho.me/","body":{"selection":"tpyo"}}]`)
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("status = %d retry-after = %q, want 503 with Retry-After", rec.Code, rec.Header().Get("Retry-After"))
+	}
+}
