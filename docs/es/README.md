@@ -41,6 +41,7 @@ Report Relay acepta los informes de seguridad que envían los navegadores y los 
 - Una entrada para todos los informes que puede enviar un sitio
 - Informes de infracciones de Permissions Policy
 - Informes SMTP TLS
+- Informes de erratas de tus lectores
 - Un tipo de informe que nadie ha definido todavía se conserva igualmente
 
 También hereda las características de B19 / Ubuntu; consulta [Características](FEATURES.md) para ver la lista completa.
@@ -141,6 +142,10 @@ Puntos de entrada de la canalización:
 - `make audited` — Vuelve a escanear las dependencias fijadas y los artefactos publicados en busca de vulnerabilidades nuevas
 - `make check-outdated` — Informa de cada dependencia fijada que va por detrás de su versión upstream
 - `make ready-to-publish` — Ejecuta localmente el pipeline pseudo-CI — compila, prueba y escanea, sin publicar
+
+## Documentación
+
+- [Collect typo reports from your site](../how-to/typo-reports.md)
 
 ## Políticas
 

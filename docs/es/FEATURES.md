@@ -122,6 +122,13 @@ SPDX-License-Identifier: MIT
 - Un informe individual se convierte en un registro por fallo; uno agregado, en un registro por tipo de resultado, con su recuento de sesiones fallidas.
 - Un cuerpo gzip se limita después de descomprimirlo, así una subida pequeña no puede expandirse más allá del límite de cuerpo.
 
+### Informes de erratas de tus lectores
+
+- Los lectores informan de una errata en tu sitio con Ctrl+Enter, y el informe llega junto a tus informes de seguridad en el dominio `content`.
+- Cada informe enlaza directamente con la errata resaltada en la página, de modo que un clic en Grafana la muestra en contexto.
+- El texto libre del lector se limita a un conjunto fijo de campos cortos, por lo que no puede aumentar tus etiquetas ni tu almacenamiento.
+- Un solo interruptor desactiva la recepción y el resto del relay sigue funcionando. Consulta [Recopilar informes de erratas de tu sitio](../how-to/typo-reports.md).
+
 ### Un tipo de informe que nadie ha definido todavía se conserva igualmente
 
 - La Reporting API es una lista abierta, así que un tipo que esta versión nunca ha visto se acepta con su cuerpo intacto en lugar de descartarse.

@@ -120,6 +120,13 @@ SPDX-License-Identifier: MIT
 - An individual report becomes one record per failure; an aggregate report becomes one record per result type, with its failing session counts.
 - A gzip body is capped after decompression, so a small upload cannot expand past the body limit.
 
+### Typo reports from your readers
+
+- Readers report a typo on your site with Ctrl+Enter, and it arrives beside your security reports in the `content` domain.
+- Each report links straight to the highlighted typo on the page, so a click in Grafana shows it in context.
+- Free reader text is held to a fixed set of short fields, so it cannot grow your labels or your storage.
+- One switch turns the intake off, and the rest of the relay keeps running. See [Collect typo reports from your site](how-to/typo-reports.md).
+
 ### A report type nobody has defined yet is still kept
 
 - The Reporting API is an open list, so a type this build has never heard of is accepted with its body intact instead of being thrown away.

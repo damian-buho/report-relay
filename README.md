@@ -39,6 +39,7 @@ Report Relay accepts the security reports browsers and mail servers send — Rep
 - One endpoint for every report a site can send
 - Permissions Policy violation reports
 - SMTP TLS reports
+- Typo reports from your readers
 - A report type nobody has defined yet is still kept
 
 It also inherits the features of B19 / Ubuntu — see [Features](docs/FEATURES.md) for the full list.
@@ -139,6 +140,10 @@ Pipeline entry points:
 - `make audited` — Re-scan the pinned dependencies and published artifacts for new vulnerabilities
 - `make check-outdated` — Report every pinned dependency that lags upstream
 - `make ready-to-publish` — Run the pseudo-CI pipeline locally — build, test and scan, without publishing
+
+## Documentation
+
+- [Collect typo reports from your site](docs/how-to/typo-reports.md)
 
 ## Policies
 
