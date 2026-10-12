@@ -53,10 +53,10 @@ type reportEnvelope struct {
 	Body json.RawMessage `json:"body"`
 }
 
-// bodyHook validates and annotates the body of one report type. It returns an
+// bodyHook validates and annotates one report of its type, after URL redaction. It returns an
 // error to reject the report, or nil to accept it. Registering a hook for a new
 // type is the whole cost of supporting it properly.
-type bodyHook func(body map[string]any) error
+type bodyHook func(report *Report) error
 
 // bodyHooks holds the per-type validation, keyed by report type. It is an open
 // map: a type with no entry is accepted on the envelope alone, because the spec
@@ -93,9 +93,9 @@ var requiredBody = map[string][]string{
 func init() {
 	for reportType, required := range requiredBody {
 		keys := required
-		RegisterBodyHook(reportType, func(body map[string]any) error {
+		RegisterBodyHook(reportType, func(report *Report) error {
 			for _, key := range keys {
-				if _, ok := body[key]; !ok {
+				if _, ok := report.Body[key]; !ok {
 					return fmt.Errorf("body is missing %q", key)
 				}
 			}

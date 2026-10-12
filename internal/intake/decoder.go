@@ -100,14 +100,14 @@ func reportingAPIReport(env reportEnvelope, limits guard.Limits, keepQuery bool)
 		}
 	}
 	keepRawType(&report, env.Type)
-	if hook, ok := bodyHooks[report.Type]; ok {
-		if err := hook(report.Body); err != nil {
-			return Report{}, fmt.Errorf("%w: type %q: %w", ErrInvalidReport, report.Type, err)
-		}
-	}
 	if !keepQuery {
 		report.URL = redactURL(report.URL)
 		redactBody(report.Body, keepQuery, limits.MaxJSONDepth)
+	}
+	if hook, ok := bodyHooks[report.Type]; ok {
+		if err := hook(&report); err != nil {
+			return Report{}, fmt.Errorf("%w: type %q: %w", ErrInvalidReport, report.Type, err)
+		}
 	}
 	return report, nil
 }
@@ -175,7 +175,7 @@ func decodeCSPReport(body []byte, limits guard.Limits, keepQuery bool) ([]Report
 		redactBody(report.Body, keepQuery, limits.MaxJSONDepth)
 	}
 	if hook, ok := bodyHooks[report.Type]; ok {
-		if err := hook(report.Body); err != nil {
+		if err := hook(&report); err != nil {
 			return nil, fmt.Errorf("%w: type %q: %w", ErrInvalidReport, report.Type, err)
 		}
 	}
