@@ -92,6 +92,8 @@ chmod +x ~/.local/bin/report-relay
 
 Published for: `linux/amd64`, `linux/arm64`, `linux/riscv64`
 
+To uninstall, delete that one file: `rm ~/.local/bin/report-relay`.
+
 ## Usage
 
 Run the service in the background, publishing its ports:

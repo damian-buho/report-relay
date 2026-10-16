@@ -94,6 +94,8 @@ chmod +x ~/.local/bin/report-relay
 
 Опубліковано для: `linux/amd64`, `linux/arm64`, `linux/riscv64`
 
+Щоб видалити, зітріть цей єдиний файл: `rm ~/.local/bin/report-relay`.
+
 ## Використання
 
 Запустіть сервіс у фоновому режимі, опублікувавши його порти:

@@ -94,6 +94,8 @@ chmod +x ~/.local/bin/report-relay
 
 Publicado para: `linux/amd64`, `linux/arm64`, `linux/riscv64`
 
+Para desinstalarlo, borra ese único archivo: `rm ~/.local/bin/report-relay`.
+
 ## Uso
 
 Ejecuta el servicio en segundo plano, publicando sus puertos:
