@@ -137,6 +137,7 @@ org:
         kind: binary
         path: dist/report-relay
         host-asset: report-relay-linux-$(uname -m)
+        architecture: [amd64, arm64, riscv64]
     images:
       # The pipeline runs the real collector and store, so the intake is proved
       # end to end rather than against a stub. Declared here and not in a
@@ -163,23 +164,9 @@ org:
         O9S_LOKI_IMAGE: ""
       nodes:
         binaries-are-built:
-          matrix:
-            axes:
-              GOARCH:
-                - amd64
-                - arm64
-                - riscv64
-              GOOS:
-                - linux
+          matrix: {artifact: go-binary}
         gsa:
-          matrix:
-            axes:
-              GOARCH:
-                - amd64
-                - arm64
-                - riscv64
-              GOOS:
-                - linux
+          matrix: {artifact: go-binary}
     conventions:
       fragments:
         parents:
