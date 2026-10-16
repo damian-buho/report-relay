@@ -37,15 +37,26 @@ includes:
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/registry/dockerhub.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/traits/personal-image.yaml
 keywords:
+  - browser-security
+  - certificate-transparency
+  - content-security-policy
+  - dmarc
+  - email-security
+  - expect-ct
+  - grafana
+  - hpkp
+  - loki
+  - mta-sts
+  - network-error-logging
+  - observability
   - opentelemetry
   - otlp
-  - csp
+  - permissions-policy
   - reporting-api
+  - self-hosted
+  - subresource-integrity
   - tlsrpt
-  - security
-  - loki
-  - go
-  - docker
+  - web-security
 kind: SoftwareSourceCode
 license:
   covers: project

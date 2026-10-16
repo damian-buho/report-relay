@@ -25,15 +25,26 @@ contact:
     website: https://dbuho.me
 version: 0.10.0
 keywords:
+  - browser-security
+  - certificate-transparency
+  - content-security-policy
+  - dmarc
+  - email-security
+  - expect-ct
+  - grafana
+  - hpkp
+  - loki
+  - mta-sts
+  - network-error-logging
+  - observability
   - opentelemetry
   - otlp
-  - csp
+  - permissions-policy
   - reporting-api
+  - self-hosted
+  - subresource-integrity
   - tlsrpt
-  - security
-  - loki
-  - go
-  - docker
+  - web-security
 license: MIT
 repository-code: https://kiota.ch/damian-buho/report-relay
 date-released: "2026-10-12"
