@@ -29,9 +29,9 @@ includes:
   - .makefile/container/traits/image/malware-scan.yaml
   - .makefile/container/traits/readme/service.yaml
   - .makefile/library/languages/go.yaml
-  - .makefile/library/traits/go/binary.yaml
   - .makefile/library/traits/binary/signed.yaml
   - .makefile/library/traits/binary/torrent.yaml
+  - .makefile/library/traits/go/binary.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/forge/codeberg.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/forge/github.yaml
   - https://kiota.ch/damian-buho/metadata/raw/branch/main/include.yaml
@@ -64,9 +64,9 @@ license:
   spdx: MIT
 links:
   - label:
-      en: Report Relay on GitHub
-      es: Report Relay en GitHub
-      uk: Report Relay на GitHub
+      en: Repository on GitHub
+      es: Repositorio en GitHub
+      uk: Репозиторій на GitHub
     priority: 80
     tags:
       - public
@@ -84,17 +84,17 @@ links:
     type: bugs
     url: https://github.com/damian-buho/report-relay/issues
   - label:
-      en: Report Relay on kiota.ch
-      es: Report Relay en kiota.ch
-      uk: Report Relay на kiota.ch
+      en: Repository on kiota.ch
+      es: Repositorio en kiota.ch
+      uk: Репозиторій на kiota.ch
     preferred: true
     priority: 10
     type: source-code
     url: https://kiota.ch/damian-buho/report-relay
   - label:
-      en: Report Relay on Codeberg
-      es: Report Relay en Codeberg
-      uk: Report Relay на Codeberg
+      en: Repository on Codeberg
+      es: Repositorio en Codeberg
+      uk: Репозиторій на Codeberg
     priority: 90
     tags:
       - public
@@ -198,6 +198,9 @@ repositories:
   - role: mirror
     type: git
     url: git@codeberg.org:damian-buho/report-relay.git
+  - role: mirror
+    type: git
+    url: ssh://git@codeberg.org/damian-buho/report-relay.git
 requirements:
   runtime:
     go: '>= 1.26.0'
