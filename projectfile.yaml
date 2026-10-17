@@ -18,6 +18,7 @@ identity:
     uk: Report Relay приймає звіти безпеки, які надсилають браузери та поштові сервери — пакети Reporting API, старі тіла report-uri від CSP, журнали помилок мережі та звіти SMTP TLS — і випускає один запис логу OpenTelemetry на звіт, тож вони потрапляють до наявного стеку Loki, Tempo та Grafana, а не до окремого збирача для кожного типу звітів.
   version: 0.10.0
   released: "2026-10-12"
+  visibility: public
 includes:
   - .makefile/b19/ci.yaml
   - .makefile/b19/images/go.yaml
