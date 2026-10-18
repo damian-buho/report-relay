@@ -1,8 +1,8 @@
+module kiota.ch/damian-buho/report-relay
+
 // SPDX-FileCopyrightText: 2026 Damián Búho <damian.buho@proton.me>
 //
 // SPDX-License-Identifier: MIT
-
-module kiota.ch/damian-buho/report-relay
 
 go 1.27.2
 
