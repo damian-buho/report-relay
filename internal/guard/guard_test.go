@@ -7,6 +7,7 @@ package guard
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -327,5 +328,55 @@ func TestIsGzipMatchesAmongCodings(t *testing.T) {
 	req.Header.Set("Content-Encoding", "gzip, br")
 	if !isGzip(req) {
 		t.Error("a body coded gzip among others was not gunzipped")
+	}
+}
+
+func TestDecodeBodyUnmarshalsObject(t *testing.T) {
+	var dst map[string]any
+	if err := DecodeBody([]byte(`{"a":"b","c":true}`), &dst); err != nil {
+		t.Fatalf("DecodeBody: %v", err)
+	}
+	if dst["a"] != "b" {
+		t.Errorf("dst[a] = %v, want b", dst["a"])
+	}
+	if dst["c"] != true {
+		t.Errorf("dst[c] = %v, want true", dst["c"])
+	}
+}
+
+func TestDecodeBodyUnmarshalsArray(t *testing.T) {
+	var dst []any
+	if err := DecodeBody([]byte(`[1,"two",null]`), &dst); err != nil {
+		t.Fatalf("DecodeBody: %v", err)
+	}
+	if len(dst) != 3 {
+		t.Fatalf("len = %d, want 3", len(dst))
+	}
+	if dst[1] != "two" {
+		t.Errorf("dst[1] = %v, want two", dst[1])
+	}
+}
+
+func TestDecodeBodyUsesJSONNumbers(t *testing.T) {
+	var dst map[string]any
+	if err := DecodeBody([]byte(`{"n":42}`), &dst); err != nil {
+		t.Fatalf("DecodeBody: %v", err)
+	}
+	if _, ok := dst["n"].(json.Number); !ok {
+		t.Errorf("dst[n] = %T, want json.Number", dst["n"])
+	}
+}
+
+func TestDecodeBodyRejectsTruncatedJSON(t *testing.T) {
+	var dst map[string]any
+	if err := DecodeBody([]byte(`{"a":`), &dst); err == nil {
+		t.Error("truncated JSON was accepted")
+	}
+}
+
+func TestDecodeBodyRejectsEmptyInput(t *testing.T) {
+	var dst map[string]any
+	if err := DecodeBody([]byte(``), &dst); err == nil {
+		t.Error("empty input was accepted")
 	}
 }
