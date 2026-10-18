@@ -243,6 +243,59 @@ func TestMediaTypeStripsParameters(t *testing.T) {
 	}
 }
 
+// TestMediaTypeStripsAParameterAtTheFirstByte pins the cut on a header value
+// that opens with its own parameter separator: nothing precedes the media type.
+func TestMediaTypeStripsAParameterAtTheFirstByte(t *testing.T) {
+	if got := MediaType(";charset=utf-8"); got != "" {
+		t.Errorf("MediaType = %q, want nothing before the first separator", got)
+	}
+	if got := MediaType(";"); got != "" {
+		t.Errorf("MediaType = %q, want nothing before the first separator", got)
+	}
+}
+
+// TestMediaTypeFoldsTheTopOfTheUppercaseRange pins the case fold at the last
+// letter it maps, which is the boundary of the fold.
+func TestMediaTypeFoldsTheTopOfTheUppercaseRange(t *testing.T) {
+	if got := MediaType("TEXT/Z-REPORT"); got != "text/z-report" {
+		t.Errorf("MediaType = %q, want the folded value", got)
+	}
+}
+
+// TestReportingAPIBatchAtTheArrayCapIsAccepted pins the batch cap at the value it
+// admits: a batch of exactly MaxArrayItems reports decodes.
+func TestReportingAPIBatchAtTheArrayCapIsAccepted(t *testing.T) {
+	limits := guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 2, MaxBodyKeys: 512}
+	body := []byte(`[
+	  {"type":"deprecation","age":1,"url":"https://beta.example.com/","body":{"id":"websql","message":"WebSQL is deprecated"}},
+	  {"type":"deprecation","age":2,"url":"https://beta.example.com/","body":{"id":"websql","message":"WebSQL is deprecated"}}
+	]`)
+	reports, err := Decode(MediaReportingAPI, body, limits, false)
+	if err != nil {
+		t.Fatalf("a batch of exactly the cap was refused: %v", err)
+	}
+	if len(reports) != 2 {
+		t.Errorf("got %d reports, want both", len(reports))
+	}
+}
+
+// TestTLSRPTFailureDetailsAtTheArrayCapAreAccepted is the same edge on the
+// per-failure list, which the aggregate path counts separately.
+func TestTLSRPTFailureDetailsAtTheArrayCapAreAccepted(t *testing.T) {
+	limits := guard.Limits{MaxBodyBytes: 65536, MaxJSONDepth: 32, MaxArrayItems: 2, MaxBodyKeys: 512}
+	body := []byte(`{"organization-name":"example.net","report-id":"r1","result-type":"individual",
+	  "failure-details":[
+	    {"result-type":"expired","server-name":"mx1.example.net"},
+	    {"result-type":"protocol","server-name":"mx2.example.net"}]}`)
+	reports, err := Decode(MediaTLSRPTJSON, body, limits, false)
+	if err != nil {
+		t.Fatalf("a failure-details list of exactly the cap was refused: %v", err)
+	}
+	if len(reports) != 2 {
+		t.Errorf("got %d reports, want one per failure detail", len(reports))
+	}
+}
+
 func TestSchemaRejectsIncompleteKnownType(t *testing.T) {
 	body := []byte(`[{"type":"csp-violation","age":1,"url":"https://beta.dbuho.me/",
 	  "body":{"documentURL":"https://beta.dbuho.me/"}}]`)
@@ -512,7 +565,7 @@ func TestLegacyCSPWithoutDocumentURIDropsWithACount(t *testing.T) {
 
 func TestRedactBodyRecursesIntoNesting(t *testing.T) {
 	body := map[string]any{
-		"nested": map[string]any{"blockedURL": "https://evil.example/x.js?token=secret"},
+		"nested": map[string]any{"blockedURL": secretURL},
 		"list":   []any{map[string]any{"documentURL": "https://beta.dbuho.me/a?token=secret"}},
 	}
 	redactBody(body, false, testLimits().MaxJSONDepth)

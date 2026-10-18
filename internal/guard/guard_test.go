@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 func TestReadBodyRejectsOversizeBody(t *testing.T) {
@@ -227,15 +229,25 @@ func TestClientIPFallsBackWhenTheChainIsAllTrusted(t *testing.T) {
 }
 
 func TestParseTrustedProxies(t *testing.T) {
-	nets, err := ParseTrustedProxies([]string{"10.0.0.0/8", "192.0.2.1", " 2001:db8::/32 "})
+	nets, err := ParseTrustedProxies([]string{"10.0.0.0/8", "192.0.2.1", " 2001:db8::/32 ", "2001:db8::1"})
 	if err != nil {
 		t.Fatalf("ParseTrustedProxies: %v", err)
 	}
-	if len(nets) != 3 {
-		t.Fatalf("networks = %d, want 3", len(nets))
+	if len(nets) != 4 {
+		t.Fatalf("networks = %d, want 4", len(nets))
 	}
 	if !nets[1].Contains(net.ParseIP("192.0.2.1")) || nets[1].Contains(net.ParseIP("192.0.2.2")) {
 		t.Error("a bare IP must parse as a single-host network")
+	}
+	// The mask is what carries the address family: an IPv4 peer given a 128-bit network, or an IPv6 one given 32, misreads every address the callers compare against it.
+	for _, tc := range []struct {
+		name string
+		net  *net.IPNet
+		bits int
+	}{{"ipv4", nets[1], 32}, {"ipv6", nets[3], 128}} {
+		if ones, bits := tc.net.Mask.Size(); ones != tc.bits || bits != tc.bits {
+			t.Errorf("%s mask = /%d of %d bits, want /%d of %d", tc.name, ones, bits, tc.bits, tc.bits)
+		}
 	}
 	if _, err := ParseTrustedProxies([]string{"not-a-cidr"}); err == nil {
 		t.Error("garbage was accepted as a trusted proxy")
@@ -249,6 +261,125 @@ func mustNets(t *testing.T, cidrs ...string) []*net.IPNet {
 		t.Fatalf("ParseTrustedProxies: %v", err)
 	}
 	return nets
+}
+
+// TestLimiterClampsOneUnitPastEachBound pins the clamps at their edges: a burst
+// of exactly 1 is a real burst, and a rate is kept only when it is positive.
+func TestLimiterClampsOneUnitPastEachBound(t *testing.T) {
+	kept := NewLimiter(0.5, 2)
+	defer kept.Close()
+	if kept.burst != 2 {
+		t.Errorf("burst = %d, want the value 2 kept", kept.burst)
+	}
+	if kept.rate != rate.Limit(0.5) {
+		t.Errorf("rate = %v, want the value 0.5 kept", kept.rate)
+	}
+	floored := NewLimiter(0.5, 1)
+	defer floored.Close()
+	if floored.burst != 1 {
+		t.Errorf("burst = %d, want the clamp to hold at 1", floored.burst)
+	}
+	zeroed := NewLimiter(-0.5, 4)
+	defer zeroed.Close()
+	if zeroed.rate != 0 {
+		t.Errorf("rate = %v, want a negative rate clamped to 0 (fail closed)", zeroed.rate)
+	}
+}
+
+// TestLimiterIdleTTLAndSweepAreDerivedFromTheRate pins the two timings a high
+// burst computes: the reclaim time is twice the refill time, and the sweep runs
+// at half of it, floored at one second.
+func TestLimiterIdleTTLAndSweepAreDerivedFromTheRate(t *testing.T) {
+	fast := NewLimiter(10, 1)
+	defer fast.Close()
+	if fast.ttl != 200*time.Millisecond {
+		t.Errorf("ttl = %v, want 200ms: one second divided by 10 rps, doubled", fast.ttl)
+	}
+	if fast.every != time.Second {
+		t.Errorf("sweep = %v, want the one-second floor", fast.every)
+	}
+	slow := NewLimiter(1, 2)
+	defer slow.Close()
+	if slow.ttl != 4*time.Second {
+		t.Errorf("ttl = %v, want 4s: two seconds of refill, doubled", slow.ttl)
+	}
+	if slow.every != 2*time.Second {
+		t.Errorf("sweep = %v, want half the ttl", slow.every)
+	}
+	bursty := NewLimiter(0.001, 100000)
+	defer bursty.Close()
+	if bursty.ttl != maxIdleTTL {
+		t.Errorf("ttl = %v, want it capped at %v", bursty.ttl, maxIdleTTL)
+	}
+}
+
+// TestLimiterEvictsTheOnlyEntryWhenTheTableIsFull proves the eviction picks a
+// real entry: with a single occupant the sample holds one candidate, and a
+// victim the scan never considered would leave the table over its bound.
+func TestLimiterEvictsTheOnlyEntryWhenTheTableIsFull(t *testing.T) {
+	limiter := NewLimiter(1000, 1000)
+	defer limiter.Close()
+	limiter.max = 1
+	limiter.Allow("203.0.113.1")
+	limiter.Allow("203.0.113.2")
+	if got := limiter.Clients(); got != 1 {
+		t.Errorf("clients = %d, want the table held at its bound of 1", got)
+	}
+}
+
+// TestEvictKeepsABucketExactlyAtItsTTL pins the reclaim boundary: past the ttl
+// the bucket is spent anyway, so it goes; exactly at it, it stays.
+func TestEvictKeepsABucketExactlyAtItsTTL(t *testing.T) {
+	limiter := NewLimiter(1, 1)
+	defer limiter.Close()
+	seen := time.Now()
+	limiter.buckets["198.51.100.1"] = &client{lim: rate.NewLimiter(1, 1), seenAt: seen}
+	limiter.evict(seen.Add(limiter.ttl))
+	if got := limiter.Clients(); got != 1 {
+		t.Errorf("clients = %d, want the bucket kept at exactly its ttl", got)
+	}
+	limiter.evict(seen.Add(limiter.ttl + time.Nanosecond))
+	if got := limiter.Clients(); got != 0 {
+		t.Errorf("clients = %d, want the bucket reclaimed one nanosecond past its ttl", got)
+	}
+}
+
+// TestIsTrustedChecksEveryNetworkAndRejectsGarbage pins both halves of the
+// lookup: a host in the second network is trusted, and a value net/url cannot
+// read is nobody's peer.
+func TestIsTrustedChecksEveryNetworkAndRejectsGarbage(t *testing.T) {
+	trusted := mustNets(t, "10.0.0.0/8", "192.0.2.0/24")
+	if !isTrusted("192.0.2.5", trusted) {
+		t.Error("a host inside the second trusted network was refused")
+	}
+	if isTrusted("198.51.100.1", trusted) {
+		t.Error("a host outside every trusted network was accepted")
+	}
+	if isTrusted("not-an-ip", trusted) {
+		t.Error("an unparseable peer was trusted")
+	}
+}
+
+// TestReadBodyAcceptsAGzipBodyAtTheCap pins the same exact-size acceptance the
+// plain path gets, on the decompressed stream the parser actually reads.
+func TestReadBodyAcceptsAGzipBodyAtTheCap(t *testing.T) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write([]byte(strings.Repeat("a", 1024))); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(buf.Bytes()))
+	req.Header.Set("Content-Encoding", "gzip")
+	body, err := ReadBody(req, 1024)
+	if err != nil {
+		t.Fatalf("a body decompressing to exactly the cap was refused: %v", err)
+	}
+	if len(body) != 1024 {
+		t.Errorf("len = %d, want 1024 decompressed bytes", len(body))
+	}
 }
 
 func TestLimiterBoundsTheTable(t *testing.T) {

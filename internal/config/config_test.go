@@ -84,6 +84,121 @@ func TestValidateRejectsFootguns(t *testing.T) {
 	}
 }
 
+// TestValidateAcceptsEveryCapAtItsFloor pins each "want >= 1" contract at the
+// value it admits: a cap of exactly 1 is legal, and one step up is legal too, so
+// a boundary moved by one is caught rather than argued about.
+func TestValidateAcceptsEveryCapAtItsFloor(t *testing.T) {
+	for _, size := range []int64{1, 2} {
+		cfg := validConfig()
+		cfg.RateLimitBurst = int(size)
+		cfg.MaxBodyBytes = size
+		cfg.MaxJSONDepth = int(size)
+		cfg.MaxArrayItems = int(size)
+		cfg.MaxBodyKeys = int(size)
+		cfg.QueueSize = int(size)
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("caps at %d were refused: %v", size, err)
+		}
+	}
+}
+
+func TestValidateAcceptsAZeroRateRefusalBoundary(t *testing.T) {
+	// The contract is "want > 0": a rate of zero disables the intake, so it is
+	// the value at the boundary the error text names.
+	cfg := validConfig()
+	cfg.RateLimitRPS = 0
+	if err := cfg.Validate(); err == nil {
+		t.Error("a zero rate passed validation: it refuses every request at runtime")
+	}
+	cfg.RateLimitRPS = 0.5
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("the smallest positive rate was refused: %v", err)
+	}
+}
+
+func TestValidateAcceptsAnExportBudgetEqualToTheBackoff(t *testing.T) {
+	cfg := validConfig()
+	cfg.ExportMaxElapsed = cfg.ExportInitialBackoff
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("a budget equal to the initial backoff was refused: %v", err)
+	}
+	cfg.ExportMaxElapsed = cfg.ExportInitialBackoff - time.Nanosecond
+	if err := cfg.Validate(); err == nil {
+		t.Error("a budget one nanosecond below the initial backoff passed validation")
+	}
+}
+
+// TestValidateAcceptsThePortRangeEdges pins the unprivileged range the image
+// binds in: 1025 and 65535 are legal, 1024 and 65536 are not.
+func TestValidateAcceptsThePortRangeEdges(t *testing.T) {
+	for _, port := range []string{"1025", "65535"} {
+		cfg := validConfig()
+		cfg.HTTPPort = port
+		cfg.AdminPort = port
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("port %s was refused: %v", port, err)
+		}
+	}
+	for name, mutate := range map[string]func(*Config){
+		"low intake": func(c *Config) { c.HTTPPort = "1024" },
+		"high admin": func(c *Config) { c.AdminPort = "65536" },
+	} {
+		cfg := validConfig()
+		mutate(&cfg)
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("%s: a port outside 1025-65535 passed validation", name)
+		}
+	}
+}
+
+// captureWarnings redirects the default slog logger into a builder, because the
+// startup warnings are part of what Validate reports to an operator.
+func captureWarnings(t *testing.T) *strings.Builder {
+	t.Helper()
+	out := &strings.Builder{}
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(old) })
+	return out
+}
+
+func TestValidateWarnsWhenTrustProxyHasNoProxyToTrust(t *testing.T) {
+	out := captureWarnings(t)
+	cfg := validConfig()
+	cfg.TrustProxy = true
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if !strings.Contains(out.String(), "trusted proxies") {
+		t.Errorf("logs = %q, want the forwarded-headers warning", out.String())
+	}
+}
+
+func TestValidateWarnsWhenTypoIntakeHasNoAllowedOrigin(t *testing.T) {
+	out := captureWarnings(t)
+	cfg := validConfig()
+	cfg.TypoOn = true
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if !strings.Contains(out.String(), "allowed origins") {
+		t.Errorf("logs = %q, want the typo origin warning", out.String())
+	}
+}
+
+func TestValidateIsQuietWhenNoFlagNeedsAWarning(t *testing.T) {
+	out := captureWarnings(t)
+	cfg := validConfig()
+	cfg.TrustProxy = false
+	cfg.TypoOn = false
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if out.String() != "" {
+		t.Errorf("logs = %q, want no warning with both flags off", out.String())
+	}
+}
+
 func TestLoadAppliesDefaults(t *testing.T) {
 	for _, key := range []string{
 		"REPORT_RELAY_SERVICE_NAME", "REPORT_RELAY_SERVICE_NAMESPACE",

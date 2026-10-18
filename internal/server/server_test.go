@@ -817,6 +817,63 @@ func TestDisallowedOriginGetsNoCORSHeader(t *testing.T) {
 	}
 }
 
+// TestTimeoutsBoundEveryDeadline pins the three listener deadlines, which are
+// the only thing standing between a stalled upload and an open connection.
+func TestTimeoutsBoundEveryDeadline(t *testing.T) {
+	read, write, idle := Timeouts()
+	if read != 15*time.Second {
+		t.Errorf("read timeout = %v, want 15s", read)
+	}
+	if write != 10*time.Second {
+		t.Errorf("write timeout = %v, want 10s", write)
+	}
+	if idle != 120*time.Second {
+		t.Errorf("idle timeout = %v, want 120s", idle)
+	}
+}
+
+// TestBadTrustedProxyCIDRsAreLoggedAndTrustNone pins the fallback: an operator
+// who mistypes a CIDR gets a warning and no forwarded-header trust at all.
+func TestBadTrustedProxyCIDRsAreLoggedAndTrustNone(t *testing.T) {
+	cfg := testConfig()
+	cfg.TrustProxy = true
+	cfg.TrustedProxyCIDRs = []string{"not-a-cidr"}
+	emitter, _ := newTestEmitter(t, cfg)
+	out := &strings.Builder{}
+	log := slog.New(slog.NewTextHandler(out, nil))
+	srv := New(cfg, log, emitter, func() bool { return true })
+	t.Cleanup(srv.Close)
+	if !strings.Contains(out.String(), "trusted proxies") {
+		t.Errorf("logs = %q, want the bad-CIDR warning", out.String())
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(oneReport))
+	req.Header.Set("Content-Type", intake.MediaReportingAPI)
+	req.RemoteAddr = "192.0.2.10:5555"
+	req.Header.Set("X-Forwarded-For", "203.0.113.9")
+	rec := httptest.NewRecorder()
+	srv.IntakeHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 with no proxy trusted", rec.Code)
+	}
+}
+
+// TestPreflightWithoutRequestedHeadersAdvertisesContentType pins the default a
+// browser gets when it asks for no header list: the one header a report needs.
+func TestPreflightWithoutRequestedHeadersAdvertisesContentType(t *testing.T) {
+	srv, _, _ := testServer(t, testConfig())
+	req := httptest.NewRequest(http.MethodOptions, "/", nil)
+	req.Header.Set("Origin", "https://beta.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	rec := httptest.NewRecorder()
+	srv.IntakeHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type" {
+		t.Errorf("Allow-Headers = %q, want Content-Type", got)
+	}
+}
+
 // counterTotal sums one named counter from a manual reader over the data
 // points a predicate keeps, so a test can narrow by attribute.
 func counterTotal(t *testing.T, reader *sdkmetric.ManualReader, name string, keep func(attribute.Set) bool) int64 {

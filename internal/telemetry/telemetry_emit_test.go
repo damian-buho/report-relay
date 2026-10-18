@@ -11,6 +11,8 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -92,6 +94,171 @@ func TestEmitQueuesReportWithBody(t *testing.T) {
 	}
 	if got := em.queued.Load(); got != 1 {
 		t.Errorf("queued = %d, want 1", got)
+	}
+}
+
+// captureExporter keeps every record the batch processor delivers, so an
+// assertion is on the attributes a report actually became.
+type captureExporter struct {
+	mu      sync.Mutex
+	records []sdklog.Record
+}
+
+func (c *captureExporter) Export(_ context.Context, batch []sdklog.Record) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.records = append(c.records, batch...)
+	return nil
+}
+
+func (c *captureExporter) Shutdown(context.Context) error   { return nil }
+func (c *captureExporter) ForceFlush(context.Context) error { return nil }
+
+func (c *captureExporter) Records() []sdklog.Record {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.records)
+}
+
+// attributesOf flattens a record's attributes into a lookup by key.
+func attributesOf(record sdklog.Record) map[string]string {
+	out := map[string]string{}
+	record.WalkAttributes(func(kv attribute.KeyValue) bool {
+		out[string(kv.Key)] = kv.Value.String()
+		return true
+	})
+	return out
+}
+
+// emittingRecords emits one report and returns the attributes of the record it
+// became, with the flush that carries it out of the queue.
+func emittingRecords(t *testing.T, report intake.Report) map[string]string {
+	t.Helper()
+	sink := &captureExporter{}
+	em, err := NewWithExporters(testConfig(), sink, sdkmetric.NewManualReader())
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	if !em.Emit(context.Background(), report) {
+		t.Fatal("Emit refused a report with room in the queue")
+	}
+	if err := em.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	records := sink.Records()
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	return attributesOf(records[0])
+}
+
+// spareReport is the one-report fixture the attribute assertions share: a type
+// that needs no url, an age and no body shape of its own.
+func spareReport() intake.Report {
+	report := reportsOf("deprecation")[0]
+	report.Body = map[string]any{"id": "websql"}
+	return report
+}
+
+// TestEmitOmitsTheURLAndAgeTheReportDoesNotCarry pins the three optional
+// attributes: no url, no age and no host without a url to take a host from.
+func TestEmitOmitsTheURLAndAgeTheReportDoesNotCarry(t *testing.T) {
+	attrs := emittingRecords(t, spareReport())
+	for _, key := range []string{"report.url", "report.url_host", "report.age_ms"} {
+		if _, ok := attrs[key]; ok {
+			t.Errorf("%s = %v, want the attribute absent", key, attrs[key])
+		}
+	}
+}
+
+// TestEmitCarriesEveryURLAttributeWhenTheReportHasOne is the populated side of
+// the same three, at the smallest age the record admits.
+func TestEmitCarriesEveryURLAttributeWhenTheReportHasOne(t *testing.T) {
+	report := spareReport()
+	report.URL = "https://beta.example.com/legacy"
+	report.Age = 1
+	attrs := emittingRecords(t, report)
+	if attrs["report.url"] != "https://beta.example.com/legacy" {
+		t.Errorf("report.url = %q, want the reported url", attrs["report.url"])
+	}
+	if attrs["report.url_host"] != "beta.example.com" {
+		t.Errorf("report.url_host = %q, want the host", attrs["report.url_host"])
+	}
+	if attrs["report.age_ms"] != "1" {
+		t.Errorf("report.age_ms = %q, want 1", attrs["report.age_ms"])
+	}
+}
+
+// TestEmitOmitsTheHostWhenTheURLWillNotParse pins the host attribute's guard:
+// the url still rides along, but no host is invented from a value net/url
+// refused.
+func TestEmitOmitsTheHostWhenTheURLWillNotParse(t *testing.T) {
+	report := spareReport()
+	report.URL = "http://[::1"
+	attrs := emittingRecords(t, report)
+	if attrs["report.url"] != "http://[::1" {
+		t.Errorf("report.url = %q, want the reported url kept whole", attrs["report.url"])
+	}
+	if _, ok := attrs["report.url_host"]; ok {
+		t.Errorf("report.url_host = %q, want no host from an unparseable url", attrs["report.url_host"])
+	}
+}
+
+// TestNewWithExportersClampsAnEmptyQueueToOneSlot pins the one-slot floor: an
+// unset queue size would be a zero-length channel the gate can never claim.
+func TestNewWithExportersClampsAnEmptyQueueToOneSlot(t *testing.T) {
+	cfg := testConfig()
+	cfg.QueueSize = 0
+	em, err := NewWithExporters(cfg, stubExporter{}, sdkmetric.NewManualReader())
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	if em.queueSize != 1 {
+		t.Errorf("queueSize = %d, want the clamp to 1", em.queueSize)
+	}
+	if !em.Emit(context.Background(), reportsOf("deprecation")[0]) {
+		t.Error("the one-slot queue refused its only report")
+	}
+}
+
+// TestEveryCounterIsRegistered pins the declarations: the export-failure
+// counter in particular is only reached on a failed export, so a registration
+// that never ran would leave a nil instrument behind until the first outage.
+func TestEveryCounterIsRegistered(t *testing.T) {
+	em, err := NewWithExporters(testConfig(), stubExporter{}, sdkmetric.NewManualReader())
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	for name, instrument := range map[string]any{
+		"received":   em.received,
+		"accepted":   em.accepted,
+		"dropped":    em.dropped,
+		"exportFail": em.exportFail,
+	} {
+		if reflect.ValueOf(instrument).IsNil() {
+			t.Errorf("counter %q was never registered", name)
+		}
+	}
+}
+
+// failingWriter refuses every write, which is the only failure the stdout
+// exporter can meet.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+// TestStdoutExporterReportsAWriteFailure pins that a broken stdout reaches the
+// caller as an error, so the batch processor drops the batch instead of
+// reporting it delivered.
+func TestStdoutExporterReportsAWriteFailure(t *testing.T) {
+	exp := &stdoutExporter{w: failingWriter{}}
+	var record sdklog.Record
+	record.SetEventName("unwritten")
+	if err := exp.Export(context.Background(), []sdklog.Record{record}); err == nil {
+		t.Error("a write that failed was reported as a delivered record")
 	}
 }
 
