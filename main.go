@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"kiota.ch/damian-buho/report-relay/internal/config"
 	"kiota.ch/damian-buho/report-relay/internal/intake"
@@ -111,15 +112,23 @@ func run() int {
 		}
 	}
 
-	// The drain deadline covers both listeners, so a slow connection delays
-	// shutdown by a bounded amount and no more.
 	drainCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
-	if err := intakeSrv.Shutdown(drainCtx); err != nil {
+	exitCode = drain(drainCtx, exitCode, intakeSrv, adminSrv, srv, emitter, log, cfg.ShutdownTimeout)
+	log.Info("stopped", "exit_code", exitCode)
+	return exitCode
+}
+
+// drain shuts down the HTTP servers and the telemetry emitter within the
+// deadlines the context and the timeout carry. It returns 1 if any step failed.
+func drain(ctx context.Context, exitCode int, intakeSrv, adminSrv *http.Server, srv *server.Server, emitter *telemetry.Emitter, log *slog.Logger, emitTimeout time.Duration) int {
+	// The drain deadline covers both listeners, so a slow connection delays
+	// shutdown by a bounded amount and no more.
+	if err := intakeSrv.Shutdown(ctx); err != nil {
 		log.Error("intake shutdown incomplete", "error", err)
 		exitCode = 1
 	}
-	if err := adminSrv.Shutdown(drainCtx); err != nil {
+	if err := adminSrv.Shutdown(ctx); err != nil {
 		log.Error("admin shutdown incomplete", "error", err)
 		exitCode = 1
 	}
@@ -127,13 +136,12 @@ func run() int {
 	srv.Close()
 	// The emitter drains on its own deadline: a slow listener drain must not
 	// starve the export queue of its own bounded wait.
-	emitCtx, emitCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	emitCtx, emitCancel := context.WithTimeout(context.Background(), emitTimeout)
 	defer emitCancel()
 	if err := emitter.Shutdown(emitCtx); err != nil {
 		log.Error("telemetry drain incomplete", "error", err)
 		exitCode = 1
 	}
-	log.Info("stopped", "exit_code", exitCode)
 	return exitCode
 }
 
