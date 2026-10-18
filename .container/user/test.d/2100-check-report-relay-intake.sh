@@ -11,9 +11,9 @@ set -eou pipefail
 
 REPORT_RELAY_URL="http://localhost:${REPORT_RELAY_HTTP_PORT}"
 ADMIN_URL="http://localhost:${REPORT_RELAY_ADMIN_PORT}"
-CSP_BODY='{"csp-report":{"document-uri":"https://beta.dbuho.me/","violated-directive":"script-src","blocked-uri":"https://evil.example/x.js","effective-directive":"script-src","original-policy":"default-src '"'"'self'"'"'"}}'
-REPORTING_BODY='[{"type":"csp-violation","age":5,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/","effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}}]'
-TLSRPT_BODY='{"organization-name":"dbuho.me","contact-info":"tls-reports@dbuho.me","report-id":"2026-09-25T00:00:00Z","result-type":"aggregate","failure-info":{"result-type":"cancelled"}}'
+CSP_BODY='{"csp-report":{"document-uri":"https://beta.example.com/","violated-directive":"script-src","blocked-uri":"https://evil.example/x.js","effective-directive":"script-src","original-policy":"default-src '"'"'self'"'"'"}}'
+REPORTING_BODY='[{"type":"csp-violation","age":5,"url":"https://beta.example.com/","body":{"documentURL":"https://beta.example.com/","effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}}]'
+TLSRPT_BODY='{"organization-name":"example.net","contact-info":"tls-reports@example.net","report-id":"2026-09-25T00:00:00Z","result-type":"aggregate","failure-info":{"result-type":"cancelled"}}'
 
 fail() {
   echo "FATAL: $1" >&2
@@ -44,7 +44,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${REPORT_RELAY_URL}/" \
 [ "${code}" = "415" ] || fail "unknown content type answered ${code}, expected 415"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS "${REPORT_RELAY_URL}/" \
-  -H 'Origin: https://beta.dbuho.me' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type')
+  -H 'Origin: https://beta.example.com' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type')
 [ "${code}" = "204" ] || fail "CORS preflight answered ${code}, expected 204"
 
 echo "Report Relay intake answered every wire format and every guard"
@@ -59,7 +59,7 @@ echo "Report Relay intake answered every wire format and every guard"
 LOKI_URL="http://${O9S_LOKI_HOST:-o9s-loki}:${O9S_LOKI_PORT:-8080}"
 TENANT="${O9S_LOKI_TENANT_ID:-o9s}"
 MARKER="probe-$(date +%s%N)"
-E2E_BODY='{"csp-report":{"document-uri":"https://beta.dbuho.me/'"$MARKER"'","violated-directive":"script-src","blocked-uri":"https://evil.example/x.js","effective-directive":"script-src"}}'
+E2E_BODY='{"csp-report":{"document-uri":"https://beta.example.com/'"$MARKER"'","violated-directive":"script-src","blocked-uri":"https://evil.example/x.js","effective-directive":"script-src"}}'
 
 # await_marker polls Loki for one marker and says how long it took. The
 # exporter batches on an interval, so the line is not there the instant the
@@ -114,7 +114,7 @@ echo "Report Relay record reached Loki labelled as the fleet queries expect"
 
 UTF8_MARKER="${MARKER}-utf8"
 UTF8_TYPE="${UTF8_MARKER}u$(printf '€%.0s' $(seq 1 100))"
-UTF8_BODY='{"organization-name":"dbuho.me","report-id":"utf8","result-type":"'"${UTF8_TYPE}"'","failure-info":{"result-type":"'"${UTF8_TYPE}"'"}}'
+UTF8_BODY='{"organization-name":"example.net","report-id":"utf8","result-type":"'"${UTF8_TYPE}"'","failure-info":{"result-type":"'"${UTF8_TYPE}"'"}}'
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${REPORT_RELAY_URL}/" \
   -H 'Content-Type: application/tlsrpt+json' --data "${UTF8_BODY}")
 [ "${code}" = "204" ] || fail "non-ASCII result type answered ${code}, expected 204"
@@ -128,7 +128,7 @@ echo "Report Relay clipped value survived the real collector into Loki"
 # ── End to end, a typo report: the content domain is promoted like the browser one ──
 
 TYPO_MARKER="${MARKER}-typo"
-TYPO_BODY='[{"type":"typo","age":0,"url":"https://beta.dbuho.me/","body":{"selection":"'"${TYPO_MARKER}"'","prefix":"a","suffix":"b","lang":"uk"}}]'
+TYPO_BODY='[{"type":"typo","age":0,"url":"https://beta.example.com/","body":{"selection":"'"${TYPO_MARKER}"'","prefix":"a","suffix":"b","lang":"uk"}}]'
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${REPORT_RELAY_URL}/" \
   -H 'Content-Type: application/reports+json' --data "${TYPO_BODY}")
 [ "${code}" = "204" ] || fail "typo report answered ${code}, expected 204"

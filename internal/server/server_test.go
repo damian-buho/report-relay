@@ -126,7 +126,7 @@ func testServer(t *testing.T, cfg config.Config) (*Server, *testSink, *telemetry
 
 // oneReport is a Reporting API batch of one, the smallest body a rate-limit or
 // queue test needs to get past the decoder.
-const oneReport = `[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}}]`
+const oneReport = `[{"type":"deprecation","age":1,"url":"https://beta.example.com/","body":{"id":"websql","message":"WebSQL is deprecated"}}]`
 
 func post(t *testing.T, handler http.Handler, mediaType, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -143,7 +143,7 @@ func TestEmitSetsEventNameAsAnAttributeNotOnlyAField(t *testing.T) {
 	// report type out of the label set, and every query filtering on it returns
 	// nothing — so the attribute is load-bearing, not decoration.
 	srv, sink, sinkEmitter := testServer(t, testConfig())
-	body := `[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}}]`
+	body := `[{"type":"deprecation","age":1,"url":"https://beta.example.com/","body":{"id":"websql","message":"WebSQL is deprecated"}}]`
 	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body); rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", rec.Code)
 	}
@@ -160,7 +160,7 @@ func TestEmitSetsEventNameAsAnAttributeNotOnlyAField(t *testing.T) {
 
 func TestLegacyCSPPostBecomesOneRecord(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
-	body := `{"csp-report":{"document-uri":"https://beta.dbuho.me/","violated-directive":"script-src",` +
+	body := `{"csp-report":{"document-uri":"https://beta.example.com/","violated-directive":"script-src",` +
 		`"blocked-uri":"https://evil.example/x.js","effective-directive":"script-src"}}`
 	rec := post(t, srv.IntakeHandler(), intake.MediaCSPReport, body)
 	if rec.Code != http.StatusNoContent {
@@ -176,16 +176,16 @@ func TestLegacyCSPPostBecomesOneRecord(t *testing.T) {
 	}
 	assertAttribute(t, record, "event.domain", "browser")
 	assertAttribute(t, record, "report.source", "csp")
-	assertAttribute(t, record, "report.url_host", "beta.dbuho.me")
+	assertAttribute(t, record, "report.url_host", "beta.example.com")
 	assertAttribute(t, record, "report.effectiveDirective", "script-src")
 }
 
 func TestReportingAPIBatchOfThreeBecomesThreeRecords(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
 	body := `[
-	  {"type":"csp-violation","age":5,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/","effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}},
-	  {"type":"deprecation","age":60,"url":"https://beta.dbuho.me/legacy","body":{"id":"websql","message":"WebSQL is deprecated"}},
-	  {"type":"network-error","age":120,"url":"https://beta.dbuho.me/api","body":{"phase":"dns","type":"dns.address_changed","method":"GET","protocol":"http/1.1","referrer":"https://beta.dbuho.me/","sampling-fraction":1.0,"server-ip":"93.184.216.34","status-code":0,"elapsed-time":12}}
+	  {"type":"csp-violation","age":5,"url":"https://beta.example.com/","body":{"documentURL":"https://beta.example.com/","effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}},
+	  {"type":"deprecation","age":60,"url":"https://beta.example.com/legacy","body":{"id":"websql","message":"WebSQL is deprecated"}},
+	  {"type":"network-error","age":120,"url":"https://beta.example.com/api","body":{"phase":"dns","type":"dns.address_changed","method":"GET","protocol":"http/1.1","referrer":"https://beta.example.com/","sampling-fraction":1.0,"server-ip":"93.184.216.34","status-code":0,"elapsed-time":12}}
 	]`
 	rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body)
 	if rec.Code != http.StatusNoContent {
@@ -205,7 +205,7 @@ func TestReportingAPIBatchOfThreeBecomesThreeRecords(t *testing.T) {
 
 func TestUnknownReportTypeReachesTheRecord(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
-	body := `[{"type":"certificate-transparency","age":7,"url":"https://beta.dbuho.me/",` +
+	body := `[{"type":"certificate-transparency","age":7,"url":"https://beta.example.com/",` +
 		`"body":{"ct-policy":"scts"}}]`
 	rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body)
 	if rec.Code != http.StatusNoContent {
@@ -221,7 +221,7 @@ func TestUnknownReportTypeReachesTheRecord(t *testing.T) {
 
 func TestTLSRPTPostBecomesOneRecordPerResultType(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
-	body := `{"organization-name":"dbuho.me","contact-info":"tls@dbuho.me","report-id":"r1",` +
+	body := `{"organization-name":"example.net","contact-info":"tls@example.net","report-id":"r1",` +
 		`"result-type":"aggregate","failure-info":{"result-type":"aggregate","failing-sessions":{"expired":3}}}`
 	rec := post(t, srv.IntakeHandler(), intake.MediaTLSRPTJSON, body)
 	if rec.Code != http.StatusNoContent {
@@ -236,7 +236,7 @@ func TestTLSRPTPostBecomesOneRecordPerResultType(t *testing.T) {
 
 func TestGzippedTLSRPTPostIsAccepted(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
-	raw := `{"organization-name":"dbuho.me","contact-info":"tls@dbuho.me","report-id":"r1",` +
+	raw := `{"organization-name":"example.net","contact-info":"tls@example.net","report-id":"r1",` +
 		`"result-type":"aggregate","failure-info":{"result-type":"aggregate","failing-sessions":{"expired":1}}}`
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
@@ -272,7 +272,7 @@ func TestDisabledIntakeAnswersServiceUnavailable(t *testing.T) {
 	cfg.TLSRPTOn = false
 	srv, _, _ := testServer(t, cfg)
 	rec := post(t, srv.IntakeHandler(), intake.MediaTLSRPTJSON,
-		`{"organization-name":"dbuho.me","failure-info":{"result-type":"aggregate"}}`)
+		`{"organization-name":"example.net","failure-info":{"result-type":"aggregate"}}`)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
 	}
@@ -296,7 +296,7 @@ func TestOversizeBodyIsRefused(t *testing.T) {
 	cfg := testConfig()
 	cfg.MaxBodyBytes = 128
 	srv, _, _ := testServer(t, cfg)
-	fat := `[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"` +
+	fat := `[{"type":"deprecation","age":1,"url":"https://beta.example.com/","body":{"documentURL":"` +
 		strings.Repeat("a", 512) + `"}}]`
 	rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, fat)
 	if rec.Code != http.StatusRequestEntityTooLarge {
@@ -315,7 +315,7 @@ func TestBadJSONIsRefused(t *testing.T) {
 func TestSchemaViolationIsRefused(t *testing.T) {
 	srv, _, _ := testServer(t, testConfig())
 	rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI,
-		`[{"type":"csp-violation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/"}}]`)
+		`[{"type":"csp-violation","age":1,"url":"https://beta.example.com/","body":{"documentURL":"https://beta.example.com/"}}]`)
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422", rec.Code)
 	}
@@ -324,7 +324,7 @@ func TestSchemaViolationIsRefused(t *testing.T) {
 func TestCORSPreflightIsAnswered(t *testing.T) {
 	srv, _, _ := testServer(t, testConfig())
 	req := httptest.NewRequest(http.MethodOptions, "/", nil)
-	req.Header.Set("Origin", "https://beta.dbuho.me")
+	req.Header.Set("Origin", "https://beta.example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	req.Header.Set("Access-Control-Request-Headers", "content-type")
 	rec := httptest.NewRecorder()
@@ -332,7 +332,7 @@ func TestCORSPreflightIsAnswered(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", rec.Code)
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://beta.dbuho.me" {
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://beta.example.com" {
 		t.Errorf("Allow-Origin = %q, want the requesting origin", got)
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, "POST") {
@@ -498,11 +498,11 @@ func TestAFullQueueSignalsBackpressure(t *testing.T) {
 
 // fiveReports is a Reporting API batch one report past a two-slot queue, so a refusal covers the whole batch or the sender's retry delivers the prefix twice.
 const fiveReports = `[
-  {"type":"csp-violation","age":1,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/","effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}},
-  {"type":"deprecation","age":2,"url":"https://beta.dbuho.me/legacy","body":{"id":"websql","message":"WebSQL is deprecated"}},
-  {"type":"network-error","age":3,"url":"https://beta.dbuho.me/api","body":{"phase":"dns","type":"dns.address_changed"}},
-  {"type":"coop","age":4,"url":"https://beta.dbuho.me/","body":{"disposition":"enforce","effectivePolicy":"same-origin-allow-popups","type":"navigation-to-response"}},
-  {"type":"integrity-violation","age":5,"url":"https://beta.dbuho.me/","body":{"documentURL":"https://beta.dbuho.me/","blockedURL":"https://evil.example/x.js"}}
+  {"type":"csp-violation","age":1,"url":"https://beta.example.com/","body":{"documentURL":"https://beta.example.com/","effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}},
+  {"type":"deprecation","age":2,"url":"https://beta.example.com/legacy","body":{"id":"websql","message":"WebSQL is deprecated"}},
+  {"type":"network-error","age":3,"url":"https://beta.example.com/api","body":{"phase":"dns","type":"dns.address_changed"}},
+  {"type":"coop","age":4,"url":"https://beta.example.com/","body":{"disposition":"enforce","effectivePolicy":"same-origin-allow-popups","type":"navigation-to-response"}},
+  {"type":"integrity-violation","age":5,"url":"https://beta.example.com/","body":{"documentURL":"https://beta.example.com/","blockedURL":"https://evil.example/x.js"}}
 ]`
 
 func TestABatchTheQueueCannotTakeIsRefusedWhole(t *testing.T) {
@@ -602,7 +602,7 @@ func TestUnsupportedContentTypeCostsARateToken(t *testing.T) {
 func preflight(t *testing.T, handler http.Handler) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodOptions, "/", nil)
-	req.Header.Set("Origin", "https://beta.dbuho.me")
+	req.Header.Set("Origin", "https://beta.example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	req.Header.Set("Access-Control-Request-Headers", "content-type")
 	rec := httptest.NewRecorder()
@@ -668,7 +668,7 @@ func TestRateLimitAnswerCarriesRetryAfter(t *testing.T) {
 func TestOversizeKeyCountIsRefusedAsTooLarge(t *testing.T) {
 	srv, _, _ := testServer(t, testConfig())
 	var b strings.Builder
-	b.WriteString(`[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"gone"`)
+	b.WriteString(`[{"type":"deprecation","age":1,"url":"https://beta.example.com/","body":{"id":"websql","message":"gone"`)
 	for i := range 511 {
 		b.WriteString(`,"k` + strconv.Itoa(i) + `":"v"`)
 	}
@@ -684,8 +684,8 @@ func TestOversizeBatchIsRefusedAsTooLarge(t *testing.T) {
 	cfg.MaxArrayItems = 1
 	srv, _, _ := testServer(t, cfg)
 	body := `[
-	  {"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}},
-	  {"type":"deprecation","age":2,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}}
+	  {"type":"deprecation","age":1,"url":"https://beta.example.com/","body":{"id":"websql","message":"WebSQL is deprecated"}},
+	  {"type":"deprecation","age":2,"url":"https://beta.example.com/","body":{"id":"websql","message":"WebSQL is deprecated"}}
 	]`
 	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body); rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want 413 for a batch past the array cap", rec.Code)
@@ -694,7 +694,7 @@ func TestOversizeBatchIsRefusedAsTooLarge(t *testing.T) {
 
 func TestCOOPPostBecomesOneRecord(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
-	body := `[{"type":"coop","age":3,"url":"https://beta.dbuho.me/",
+	body := `[{"type":"coop","age":3,"url":"https://beta.example.com/",
 	  "body":{"disposition":"enforce","effectivePolicy":"same-origin-allow-popups","type":"navigation-to-response"}}]`
 	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body); rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", rec.Code)
@@ -709,7 +709,7 @@ func TestCOOPPostBecomesOneRecord(t *testing.T) {
 
 func TestExpectCTPostBecomesOneRecord(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
-	body := `{"expect-ct-report":{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.dbuho.me",
+	body := `{"expect-ct-report":{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.example.com",
 	  "port":443,"effective-expiration-date":"2026-10-26T00:00:00Z",
 	  "served-certificate-chain":["PEM1"],"validated-certificate-chain":["PEM1"]}}`
 	if rec := post(t, srv.IntakeHandler(), intake.MediaExpectCT, body); rec.Code != http.StatusNoContent {
@@ -720,14 +720,14 @@ func TestExpectCTPostBecomesOneRecord(t *testing.T) {
 		t.Fatalf("records = %d, want 1", len(records))
 	}
 	assertAttribute(t, records[0], "event.name", "expect-ct")
-	assertAttribute(t, records[0], "report.url_host", "beta.dbuho.me")
+	assertAttribute(t, records[0], "report.url_host", "beta.example.com")
 }
 
 func TestDisabledExpectCTAnswersServiceUnavailable(t *testing.T) {
 	cfg := testConfig()
 	cfg.ExpectCTOn = false
 	srv, _, _ := testServer(t, cfg)
-	rec := post(t, srv.IntakeHandler(), intake.MediaExpectCT, `{"expect-ct-report":{"hostname":"beta.dbuho.me"}}`)
+	rec := post(t, srv.IntakeHandler(), intake.MediaExpectCT, `{"expect-ct-report":{"hostname":"beta.example.com"}}`)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
 	}
@@ -735,9 +735,9 @@ func TestDisabledExpectCTAnswersServiceUnavailable(t *testing.T) {
 
 func TestHPKPPostBecomesOneRecord(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
-	body := `{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.dbuho.me","port":443,
+	body := `{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.example.com","port":443,
 	  "effective-expiration-date":"2026-10-26T00:00:00Z","include-subdomains":false,
-	  "noted-hostname":"beta.dbuho.me","served-certificate-chain":["PEM1"],
+	  "noted-hostname":"beta.example.com","served-certificate-chain":["PEM1"],
 	  "validated-certificate-chain":["PEM1"],"known-pins":["pin-sha256=\"abcd\""]}`
 	if rec := post(t, srv.IntakeHandler(), intake.MediaHPKP, body); rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", rec.Code)
@@ -761,7 +761,7 @@ func TestIODEFPostBecomesOneRecord(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
 	body := `<IODEF-Document version="2.00" xmlns="urn:ietf:params:xml:ns:iodef-2.0">` +
 		`<Incident purpose="reporting"><IncidentID name="ca1.example.net">caa-1</IncidentID>` +
-		`<Node><NodeName>beta.dbuho.me</NodeName></Node></Incident></IODEF-Document>`
+		`<Node><NodeName>beta.example.com</NodeName></Node></Incident></IODEF-Document>`
 	if rec := post(t, srv.IntakeHandler(), intake.MediaIODEF, body); rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", rec.Code)
 	}
@@ -787,7 +787,7 @@ func TestDisabledIODEFAnswersServiceUnavailable(t *testing.T) {
 func TestPreflightAdvertisesAllowedHeaders(t *testing.T) {
 	srv, _, _ := testServer(t, testConfig())
 	req := httptest.NewRequest(http.MethodOptions, "/", nil)
-	req.Header.Set("Origin", "https://beta.dbuho.me")
+	req.Header.Set("Origin", "https://beta.example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	req.Header.Set("Access-Control-Request-Headers", "content-type")
 	rec := httptest.NewRecorder()
@@ -916,7 +916,7 @@ func TestDisabledTypoAnswersServiceUnavailable(t *testing.T) {
 	intake.RegisterTypo(false)
 	t.Cleanup(func() { intake.RegisterTypo(true) })
 	srv, _, _ := testServer(t, testConfig())
-	rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, `[{"type":"typo","url":"https://beta.dbuho.me/","body":{"selection":"tpyo"}}]`)
+	rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, `[{"type":"typo","url":"https://beta.example.com/","body":{"selection":"tpyo"}}]`)
 	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
 		t.Fatalf("status = %d retry-after = %q, want 503 with Retry-After", rec.Code, rec.Header().Get("Retry-After"))
 	}

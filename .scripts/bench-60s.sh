@@ -50,7 +50,7 @@ log "server up on 127.0.0.1:${http_port} (admin :${admin_port})"
 python3 - "${duration}" "${workers}" "${http_port}" <<'EOF'
 import http.client, json, sys, threading, time
 duration, workers, port = float(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
-body = b'[{"type":"deprecation","age":1,"url":"https://beta.dbuho.me/","body":{"id":"websql","message":"WebSQL is deprecated"}}]'
+body = b'[{"type":"deprecation","age":1,"url":"https://beta.example.com/","body":{"id":"websql","message":"WebSQL is deprecated"}}]'
 deadline = time.monotonic() + duration
 counts, lats, lock = {"204": 0, "err": 0, "other": {}}, [], threading.Lock()
 def work():

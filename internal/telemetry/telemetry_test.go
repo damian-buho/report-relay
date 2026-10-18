@@ -42,11 +42,11 @@ func testConfig() config.Config {
 
 func TestHostOfParsesWhatMatters(t *testing.T) {
 	cases := map[string]string{
-		"https://beta.dbuho.me/path?q=1":      "beta.dbuho.me",
+		"https://beta.example.com/path?q=1":   "beta.example.com",
 		"https://user:secret@Example.COM:443": "example.com",
 		"http://[2001:db8::1]:8080/x":         "2001:db8::1",
 		"http://[2001:db8::1]/x":              "2001:db8::1",
-		"dbuho.me":                            "dbuho.me",
+		"example.net":                         "example.net",
 		"Example.COM.":                        "example.com",
 		"":                                    "",
 	}
@@ -151,7 +151,7 @@ func TestNewWithoutEndpointEmitsToWriter(t *testing.T) {
 		Type:   "csp-violation",
 		Domain: intake.DomainBrowser,
 		Source: intake.SourceReportingAPI,
-		URL:    "https://beta.dbuho.me/marker",
+		URL:    "https://beta.example.com/marker",
 		Body:   map[string]any{"effectiveDirective": "script-src"},
 	}
 	if !em.Emit(context.Background(), report) {
@@ -295,7 +295,7 @@ func TestAnExportOutlivingTheAttemptDeadlineDeliversTheBatch(t *testing.T) {
 		Type:   "deprecation",
 		Domain: intake.DomainBrowser,
 		Source: intake.SourceReportingAPI,
-		URL:    "https://beta.dbuho.me/marker",
+		URL:    "https://beta.example.com/marker",
 		Body:   map[string]any{"effectiveDirective": "script-src"},
 	}
 	if !em.Emit(context.Background(), report) {

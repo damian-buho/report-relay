@@ -14,7 +14,7 @@ import (
 	"kiota.ch/damian-buho/report-relay/internal/guard"
 )
 
-const iodefHost = "beta.dbuho.me"
+const iodefHost = "beta.example.com"
 
 // iodefAltHost is the reported host of the fixtures that build their own node,
 // domain or reference rather than reusing the shared one.

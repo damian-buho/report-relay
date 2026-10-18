@@ -85,7 +85,7 @@ func TestEmitQueuesReportWithBody(t *testing.T) {
 		Type:   "network-error",
 		Domain: intake.DomainBrowser,
 		Source: intake.SourceReportingAPI,
-		URL:    "https://beta.dbuho.me/path?q=secret",
+		URL:    "https://beta.example.com/path?q=secret",
 		Age:    1000,
 		Body:   map[string]any{"phase": "connection", "blockedURL": "https://evil.com/track?token=abc"},
 	}

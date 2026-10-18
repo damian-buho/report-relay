@@ -12,7 +12,7 @@ import (
 
 func decodeTypo(t *testing.T, body string) ([]Report, error) {
 	t.Helper()
-	return Decode(MediaReportingAPI, []byte(`[{"type":"typo","age":0,"url":"https://beta.dbuho.me/post?token=secret","body":`+body+`}]`), testLimits(), false)
+	return Decode(MediaReportingAPI, []byte(`[{"type":"typo","age":0,"url":"https://beta.example.com/post?token=secret","body":`+body+`}]`), testLimits(), false)
 }
 
 func TestTypoHook(t *testing.T) {
@@ -26,17 +26,17 @@ func TestTypoHook(t *testing.T) {
 		{
 			"full", `{"selection":"tpyo","prefix":"in ","suffix":" end","comment":"the","lang":"uk"}`, false,
 			[]string{fieldSelection, fieldPrefix, fieldSuffix, fieldComment, fieldLang, fieldTextFragment},
-			"https://beta.dbuho.me/post#:~:text=in-,tpyo,-end",
+			"https://beta.example.com/post#:~:text=in-,tpyo,-end",
 		},
 		{
 			"selection only", `{"selection":"tpyo"}`, false,
 			[]string{fieldSelection, fieldTextFragment},
-			"https://beta.dbuho.me/post#:~:text=tpyo",
+			"https://beta.example.com/post#:~:text=tpyo",
 		},
 		{
 			"foreign keys dropped", `{"selection":"a-b, c&d","evil":"x","prefix":7}`, false,
 			[]string{fieldSelection, fieldTextFragment},
-			"https://beta.dbuho.me/post#:~:text=a%2Db%2C%20c%26d",
+			"https://beta.example.com/post#:~:text=a%2Db%2C%20c%26d",
 		},
 		{"missing selection", `{"prefix":"x"}`, true, nil, ""},
 		{"blank selection", `{"selection":"  "}`, true, nil, ""},
@@ -86,7 +86,7 @@ func TestTypoFieldsAreClipped(t *testing.T) {
 }
 
 func TestTypoKeepsAnExistingFragment(t *testing.T) {
-	if got := textFragment("https://beta.dbuho.me/#top", map[string]any{fieldSelection: "x"}); got != "https://beta.dbuho.me/#top:~:text=x" {
+	if got := textFragment("https://beta.example.com/#top", map[string]any{fieldSelection: "x"}); got != "https://beta.example.com/#top:~:text=x" {
 		t.Errorf("textFragment = %s", got)
 	}
 }

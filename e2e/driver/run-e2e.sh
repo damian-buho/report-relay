@@ -51,7 +51,7 @@ unset CHROME_PID
 RELAY="http://localhost:${RELAY_PORT}"
 post() { curl -s -o /dev/null -w '%{http_code}' -X POST "${RELAY}/" -H "Content-Type: $1" --data "$2"; }
 expect204() { [ "$(post "$1" "$2")" = "204" ] || fail "POST $1 answered non-204"; }
-U="https://beta.dbuho.me/e2e-${MARKER}"
+U="https://beta.example.com/e2e-${MARKER}"
 log "posting the synthetic matrix"
 expect204 'application/reports+json' '[{"type":"csp-violation","age":5,"url":"'"${U}"'/","body":{"documentURL":"'"${U}"'/","effectiveDirective":"script-src","blockedURL":"https://evil.example/x.js"}}]'
 expect204 'application/reports+json' '[{"type":"coop","age":3,"url":"'"${U}"'/","body":{"disposition":"enforce","effectivePolicy":"same-origin","type":"navigation-to-response"}}]'
@@ -65,12 +65,12 @@ expect204 'application/reports+json' '[{"type":"permissions-policy-violation","a
 expect204 'application/reports+json' '[{"type":"feature-policy-violation","age":1,"url":"'"${U}"'/","body":{"featureId":"geolocation","disposition":"enforce"}}]'
 expect204 'application/reports+json' '[{"type":"potential-permissions-policy-violation","age":1,"url":"'"${U}"'/","body":{"policyId":"fullscreen","disposition":"report","message":"would block '"${MARKER}"'"}}]'
 expect204 'application/reports+json' '[{"type":"document-policy-violation","age":1,"url":"'"${U}"'/","body":{"policyId":"document-write","disposition":"enforce","message":"blocked '"${MARKER}"'"}}]'
-expect204 'application/reports+json' '[{"type":"certificate-transparency","age":7,"url":"'"${U}"'/","body":{"ct-policy":"scts","host":"beta.dbuho.me","marker":"'"${MARKER}"'"}}]'
+expect204 'application/reports+json' '[{"type":"certificate-transparency","age":7,"url":"'"${U}"'/","body":{"ct-policy":"scts","host":"beta.example.com","marker":"'"${MARKER}"'"}}]'
 expect204 'application/csp-report' '{"csp-report":{"document-uri":"'"${U}"'/","violated-directive":"script-src","blocked-uri":"https://evil.example/x.js","effective-directive":"script-src","original-policy":"default-src '"'"'self'"'"'"}}'
-expect204 'application/expect-ct-report+json' '{"expect-ct-report":{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.dbuho.me","port":443,"effective-expiration-date":"2026-10-26T00:00:00Z","served-certificate-chain":["'"${MARKER}"'"],"validated-certificate-chain":["PEM1"]}}'
-expect204 'application/json' '{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.dbuho.me","port":443,"effective-expiration-date":"2026-10-26T00:00:00Z","include-subdomains":false,"noted-hostname":"beta.dbuho.me","served-certificate-chain":["'"${MARKER}"'"],"validated-certificate-chain":["PEM1"],"known-pins":["pin-sha256=\"abcd\""]}'
-expect204 'application/tlsrpt+json' '{"organization-name":"dbuho.me","contact-info":"tls@dbuho.me","report-id":"'"${MARKER}"'","result-type":"individual","failure-details":[{"result-type":"expired","resulting-cipher-suite":"TLS_AES_128_GCM_SHA256","server-name":"mx1.dbuho.me"}]}'
-expect204 'application/tlsrpt+json' '{"organization-name":"dbuho.me","contact-info":"tls@dbuho.me","report-id":"'"${MARKER}"'-agg","result-type":"aggregate","failure-info":{"result-type":"aggregate","failing-sessions":{"expired":4}}}'
+expect204 'application/expect-ct-report+json' '{"expect-ct-report":{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.example.com","port":443,"effective-expiration-date":"2026-10-26T00:00:00Z","served-certificate-chain":["'"${MARKER}"'"],"validated-certificate-chain":["PEM1"]}}'
+expect204 'application/json' '{"date-time":"2026-09-26T00:00:00Z","hostname":"beta.example.com","port":443,"effective-expiration-date":"2026-10-26T00:00:00Z","include-subdomains":false,"noted-hostname":"beta.example.com","served-certificate-chain":["'"${MARKER}"'"],"validated-certificate-chain":["PEM1"],"known-pins":["pin-sha256=\"abcd\""]}'
+expect204 'application/tlsrpt+json' '{"organization-name":"example.net","contact-info":"tls@example.net","report-id":"'"${MARKER}"'","result-type":"individual","failure-details":[{"result-type":"expired","resulting-cipher-suite":"TLS_AES_128_GCM_SHA256","server-name":"mx1.example.net"}]}'
+expect204 'application/tlsrpt+json' '{"organization-name":"example.net","contact-info":"tls@example.net","report-id":"'"${MARKER}"'-agg","result-type":"aggregate","failure-info":{"result-type":"aggregate","failing-sessions":{"expired":4}}}'
 log "synthetic matrix accepted"
 START=$(( ($(date +%s) - 600) * 1000000000 ))
 query() { curl -s -m 10 -H "X-Scope-OrgID: ${TENANT}" -G "${LOKI_URL}/loki/api/v1/query_range" --data-urlencode "query=$1" --data-urlencode "start=${START}"; }
