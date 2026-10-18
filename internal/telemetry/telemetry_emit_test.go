@@ -5,12 +5,18 @@
 package telemetry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"reflect"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/log"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -143,5 +149,82 @@ func TestCountersRecordMetrics(t *testing.T) {
 		if !found[name] {
 			t.Errorf("metric %q was not collected", name)
 		}
+	}
+}
+
+func TestSeverityNumber(t *testing.T) {
+	cases := map[string]log.Severity{
+		"ERROR": log.SeverityError,
+		"WARN":  log.SeverityWarn,
+		"INFO":  log.SeverityInfo,
+		"OTHER": log.SeverityInfo,
+	}
+	for input, want := range cases {
+		if got := severityNumber(input); got != want {
+			t.Errorf("severityNumber(%q) = %v, want %v", input, got, want)
+		}
+	}
+}
+
+func TestErrClass(t *testing.T) {
+	if got := errClass(context.DeadlineExceeded); got != "timeout" {
+		t.Errorf("errClass(DeadlineExceeded) = %q, want timeout", got)
+	}
+	if got := errClass(errors.New("connection refused")); got != "export-failed" {
+		t.Errorf("errClass = %q, want export-failed", got)
+	}
+}
+
+func TestEmitQueueFull(t *testing.T) {
+	cfg := testConfig()
+	cfg.QueueSize = 1
+	cfg.BatchTimeout = time.Hour
+	em, err := NewWithExporters(cfg, stubExporter{}, sdkmetric.NewManualReader())
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	if !em.Emit(context.Background(), reportsOf("deprecation")[0]) {
+		t.Fatal("first Emit was refused")
+	}
+	if em.Emit(context.Background(), reportsOf("deprecation")[0]) {
+		t.Error("second Emit was admitted past the queue capacity")
+	}
+}
+
+func TestStdoutExporterExport(t *testing.T) {
+	var buf bytes.Buffer
+	exp := &stdoutExporter{w: &buf}
+	var record sdklog.Record
+	record.SetEventName("test-report")
+	record.SetSeverityText("WARN")
+	if err := exp.Export(context.Background(), []sdklog.Record{record}); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+		t.Fatalf("stdout line is not JSON: %v", err)
+	}
+	if decoded["event_name"] != "test-report" {
+		t.Errorf("event_name = %v, want test-report", decoded["event_name"])
+	}
+}
+
+func TestStdoutExporterShutdown(t *testing.T) {
+	exp := &stdoutExporter{w: io.Discard}
+	if err := exp.Shutdown(context.Background()); err != nil {
+		t.Errorf("Shutdown: %v", err)
+	}
+}
+
+func TestCountingExporterShutdown(t *testing.T) {
+	em, err := NewWithExporters(testConfig(), stubExporter{}, sdkmetric.NewManualReader())
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	wrapped := &countingExporter{inner: stubExporter{}, em: em}
+	if err := wrapped.Shutdown(context.Background()); err != nil {
+		t.Errorf("Shutdown: %v", err)
 	}
 }
