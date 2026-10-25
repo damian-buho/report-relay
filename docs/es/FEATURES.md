@@ -148,6 +148,7 @@ SPDX-License-Identifier: MIT
 - Se hace seguimiento del PID del servicio para el reenvío de señales: Docker stop termina de forma elegante el proceso principal.
 - Los niveles de log de los flujos stdout y stderr se configuran de forma independiente.
 - El código de salida del servicio se captura y queda disponible para los hooks posteriores.
+- El modo passthrough entrega el log propio del servicio al recolector byte a byte, así los parsers hechos para ese demonio siguen coincidiendo.
 
 ### Descargas de artefactos con caché y verificación de integridad (b19-fetch)
 
@@ -240,6 +241,7 @@ Consulte [use-healthcheck.d](../how-to/use-healthcheck.d.md) para la lista de co
 - Los mensajes por debajo de la verbosidad configurada se descartan silenciosamente, manteniendo limpios los logs de producción.
 - Los colores autodetectan el soporte del terminal y respetan `NO_COLOR=1`.
 - Encauzable: la salida de comandos puede enrutarse a través del logger para aplicar filtrado por nivel y tags.
+- `B19_LOG_FORMAT=json` convierte cada línea en un objeto JSON que una canalización de logs lee sin parser; las líneas JSON propias del servicio pasan intactas.
 
 ### Contenedor sin privilegios de root por defecto
 

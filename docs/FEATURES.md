@@ -146,6 +146,7 @@ SPDX-License-Identifier: MIT
 - The service PID is tracked for signal forwarding — Docker stop gracefully terminates the main process.
 - Log levels for stdout and stderr streams are independently configurable.
 - Exit code of the service is captured and available to downstream hooks.
+- Passthrough mode hands a service’s own log to the collector byte for byte, so parsers built for that daemon still match.
 
 ### Cached artifact downloads with integrity verification
 
@@ -237,6 +238,7 @@ See [use-healthcheck.d](../how-to/use-healthcheck.d.md) for the check list, slot
 - Messages below the configured verbosity are silently discarded, keeping production logs clean.
 - Colors auto-detect terminal support and respect `NO_COLOR=1`.
 - Pipable: command output can be routed through the logger to apply level filtering and tags.
+- `B19_LOG_FORMAT=json` turns every line into one JSON object a log pipeline reads without a parser; a service’s own JSON lines pass through untouched.
 
 ### Non-root container by default
 
