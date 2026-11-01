@@ -28,14 +28,15 @@ func Timeouts() (read, write, idle time.Duration) {
 
 // Server holds the handlers of both listeners and the guards they share.
 type Server struct {
-	cfg      config.Config
-	log      *slog.Logger
-	emitter  *telemetry.Emitter
-	limiter  *guard.Limiter
-	limits   guard.Limits
-	trusted  []*net.IPNet
-	handlers map[string]http.HandlerFunc
-	ready    func() bool
+	cfg         config.Config
+	log         *slog.Logger
+	emitter     *telemetry.Emitter
+	limiter     *guard.Limiter
+	typoLimiter *guard.Limiter
+	limits      guard.Limits
+	trusted     []*net.IPNet
+	handlers    map[string]http.HandlerFunc
+	ready       func() bool
 }
 
 // New builds the intake and admin handlers.
@@ -45,10 +46,11 @@ func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready 
 		log.Warn("bad trusted proxies, trusting none", "error", err)
 	}
 	s := &Server{
-		cfg:     cfg,
-		log:     log,
-		emitter: emitter,
-		limiter: guard.NewLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst),
+		cfg:         cfg,
+		log:         log,
+		emitter:     emitter,
+		limiter:     guard.NewLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst),
+		typoLimiter: newTypoLimiter(cfg),
 		limits: guard.Limits{
 			MaxBodyBytes:  cfg.MaxBodyBytes,
 			MaxJSONDepth:  cfg.MaxJSONDepth,
@@ -75,6 +77,21 @@ func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready 
 // Close releases what no request owns: the rate limiter's idle sweep, which would otherwise tick for a stopped listener.
 func (s *Server) Close() {
 	s.limiter.Close()
+	if s.typoLimiter != nil {
+		s.typoLimiter.Close()
+	}
+}
+
+func newTypoLimiter(cfg config.Config) *guard.Limiter {
+	rps := cfg.TypoRateLimitRPS
+	if rps <= 0 && cfg.TypoRateLimitPerHour > 0 {
+		rps = float64(cfg.TypoRateLimitPerHour) / 3600.0
+	}
+	burst := cfg.TypoRateLimitBurst
+	if burst < 1 {
+		burst = 1
+	}
+	return guard.NewLimiter(rps, burst)
 }
 
 // IntakeHandler returns the public intake mux.
@@ -246,6 +263,22 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 			s.log.Warn("report rejected", "reason", reason, "source", source,
 				"client_ip", clientIP, "bytes", len(body), "error", err)
 			writeGuardError(w, reason)
+			return
+		}
+		// A second, much stricter budget applies to the typo intake alone, so a human report flood cannot exhaust the shared per-IP bucket the other report types need.
+		hasTypo := false
+		for _, report := range reports {
+			if report.Type == intake.TypeTypo {
+				hasTypo = true
+				break
+			}
+		}
+		if hasTypo && s.typoLimiter != nil && !s.typoLimiter.Allow(clientIP) {
+			s.emitter.CountDropped(r.Context(), telemetry.ReasonRateLimited, "")
+			s.log.Warn("typo rate limited", "client_ip", clientIP,
+				"typo_rate_per_hour", s.cfg.TypoRateLimitPerHour, "typo_burst", s.cfg.TypoRateLimitBurst)
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
 		// A typo report's page URL must belong to the request's own origin: rejects javascript:/data: URLs and cross-site flooding; a missing Origin is rejected only when an allow-list is configured.

@@ -31,6 +31,9 @@ type Config struct {
 	MaxBodyKeys          int
 	RateLimitRPS         float64
 	RateLimitBurst       int
+	TypoRateLimitPerHour int
+	TypoRateLimitBurst   int
+	TypoRateLimitRPS     float64
 	AllowedOrigins       []string
 	KeepQuery            bool
 	TrustProxy           bool
@@ -55,37 +58,40 @@ type Config struct {
 // on every value that had to fall back to its default.
 func Load() Config {
 	cfg := Config{
-		ServiceName:       envOr("REPORT_RELAY_SERVICE_NAME", "report-relay"),
-		Namespace:         envOr("REPORT_RELAY_SERVICE_NAMESPACE", "me.dbuho"),
-		LogLevel:          parseLevel(envOr("REPORT_RELAY_LOG_LEVEL", "info")),
-		HTTPPort:          envOr("REPORT_RELAY_HTTP_PORT", "8080"),
-		AdminPort:         envOr("REPORT_RELAY_ADMIN_PORT", "8081"),
-		MaxBodyBytes:      int64(envIntOr("REPORT_RELAY_MAX_BODY_BYTES", 65536)),
-		MaxJSONDepth:      envIntOr("REPORT_RELAY_MAX_JSON_DEPTH", 32),
-		MaxArrayItems:     envIntOr("REPORT_RELAY_MAX_ARRAY_ITEMS", 512),
-		MaxBodyKeys:       envIntOr("REPORT_RELAY_MAX_BODY_KEYS", 512),
-		RateLimitRPS:      envFloatOr("REPORT_RELAY_RATE_LIMIT_RPS", 20),
-		RateLimitBurst:    envIntOr("REPORT_RELAY_RATE_LIMIT_BURST", 40),
-		AllowedOrigins:    splitList(os.Getenv("REPORT_RELAY_ALLOWED_ORIGINS")),
-		KeepQuery:         envBoolOr("REPORT_RELAY_KEEP_QUERY", false),
-		TrustProxy:        envBoolOr("REPORT_RELAY_TRUST_PROXY", false),
-		TrustedProxyCIDRs: splitList(os.Getenv("REPORT_RELAY_TRUSTED_PROXIES")),
-		ExportTimeout:     envDurationOr("REPORT_RELAY_EXPORT_TIMEOUT", 10*time.Second),
-		ShutdownTimeout:   envDurationOr("REPORT_RELAY_SHUTDOWN_TIMEOUT", 15*time.Second),
-		ReportingAPIOn:    envBoolOr("REPORT_RELAY_ENABLE_REPORTING_API", true),
-		CSPOn:             envBoolOr("REPORT_RELAY_ENABLE_CSP", true),
-		TLSRPTOn:          envBoolOr("REPORT_RELAY_ENABLE_TLSRPT", true),
-		ExpectCTOn:        envBoolOr("REPORT_RELAY_ENABLE_EXPECT_CT", true),
-		HPKPOn:            envBoolOr("REPORT_RELAY_ENABLE_HPKP", true),
-		IODEFOn:           envBoolOr("REPORT_RELAY_ENABLE_IODEF", true),
-		TypoOn:            envBoolOr("REPORT_RELAY_ENABLE_TYPO", true),
-		QueueSize:         envIntOr("REPORT_RELAY_QUEUE_SIZE", 2048),
-		BatchTimeout:      envDurationOr("REPORT_RELAY_BATCH_TIMEOUT", 5*time.Second),
+		ServiceName:          envOr("REPORT_RELAY_SERVICE_NAME", "report-relay"),
+		Namespace:            envOr("REPORT_RELAY_SERVICE_NAMESPACE", "me.dbuho"),
+		LogLevel:             parseLevel(envOr("REPORT_RELAY_LOG_LEVEL", "info")),
+		HTTPPort:             envOr("REPORT_RELAY_HTTP_PORT", "8080"),
+		AdminPort:            envOr("REPORT_RELAY_ADMIN_PORT", "8081"),
+		MaxBodyBytes:         int64(envIntOr("REPORT_RELAY_MAX_BODY_BYTES", 65536)),
+		MaxJSONDepth:         envIntOr("REPORT_RELAY_MAX_JSON_DEPTH", 32),
+		MaxArrayItems:        envIntOr("REPORT_RELAY_MAX_ARRAY_ITEMS", 512),
+		MaxBodyKeys:          envIntOr("REPORT_RELAY_MAX_BODY_KEYS", 512),
+		RateLimitRPS:         envFloatOr("REPORT_RELAY_RATE_LIMIT_RPS", 20),
+		RateLimitBurst:       envIntOr("REPORT_RELAY_RATE_LIMIT_BURST", 40),
+		TypoRateLimitPerHour: typoRatePerHour(),
+		TypoRateLimitBurst:   typoRateBurst(),
+		AllowedOrigins:       splitList(os.Getenv("REPORT_RELAY_ALLOWED_ORIGINS")),
+		KeepQuery:            envBoolOr("REPORT_RELAY_KEEP_QUERY", false),
+		TrustProxy:           envBoolOr("REPORT_RELAY_TRUST_PROXY", false),
+		TrustedProxyCIDRs:    splitList(os.Getenv("REPORT_RELAY_TRUSTED_PROXIES")),
+		ExportTimeout:        envDurationOr("REPORT_RELAY_EXPORT_TIMEOUT", 10*time.Second),
+		ShutdownTimeout:      envDurationOr("REPORT_RELAY_SHUTDOWN_TIMEOUT", 15*time.Second),
+		ReportingAPIOn:       envBoolOr("REPORT_RELAY_ENABLE_REPORTING_API", true),
+		CSPOn:                envBoolOr("REPORT_RELAY_ENABLE_CSP", true),
+		TLSRPTOn:             envBoolOr("REPORT_RELAY_ENABLE_TLSRPT", true),
+		ExpectCTOn:           envBoolOr("REPORT_RELAY_ENABLE_EXPECT_CT", true),
+		HPKPOn:               envBoolOr("REPORT_RELAY_ENABLE_HPKP", true),
+		IODEFOn:              envBoolOr("REPORT_RELAY_ENABLE_IODEF", true),
+		TypoOn:               envBoolOr("REPORT_RELAY_ENABLE_TYPO", true),
+		QueueSize:            envIntOr("REPORT_RELAY_QUEUE_SIZE", 2048),
+		BatchTimeout:         envDurationOr("REPORT_RELAY_BATCH_TIMEOUT", 5*time.Second),
 
 		ExportInitialBackoff: envDurationOr("REPORT_RELAY_EXPORT_INITIAL_BACKOFF", 500*time.Millisecond),
 		ExportMaxBackoff:     envDurationOr("REPORT_RELAY_EXPORT_MAX_BACKOFF", 30*time.Second),
 		ExportMaxElapsed:     envDurationOr("REPORT_RELAY_EXPORT_MAX_ELAPSED", 2*time.Minute),
 	}
+	cfg.TypoRateLimitRPS = float64(cfg.TypoRateLimitPerHour) / 3600.0
 	cfg.Log(slog.Default())
 	return cfg
 }
@@ -104,6 +110,8 @@ func (c Config) Log(log *slog.Logger) {
 		"max_body_keys", c.MaxBodyKeys,
 		"rate_limit_rps", c.RateLimitRPS,
 		"rate_limit_burst", c.RateLimitBurst,
+		"typo_rate_per_hour", c.TypoRateLimitPerHour,
+		"typo_rate_burst", c.TypoRateLimitBurst,
 		"allowed_origins", c.AllowedOrigins,
 		"keep_query", c.KeepQuery,
 		"trust_proxy", c.TrustProxy,
@@ -249,6 +257,23 @@ func parseLevel(v string) slog.Level {
 		return slog.LevelInfo
 	}
 	return level
+}
+
+func typoRatePerHour() int {
+	if v := envIntOr("REPORT_RELAY_TYPO_RATE_PER_HOUR", 0); v != 0 {
+		return v
+	}
+	return 30
+}
+
+func typoRateBurst() int {
+	if v := envIntOr("REPORT_RELAY_TYPO_RATE_BURST", 0); v != 0 {
+		return v
+	}
+	if v := envIntOr("REPORT_RELAY_TYPO_RATE_LIMIT_BURST", 0); v != 0 {
+		return v
+	}
+	return 5
 }
 
 func splitList(v string) []string {
