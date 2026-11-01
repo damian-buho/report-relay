@@ -109,6 +109,20 @@ func newTypoDedup(cfg config.Config) *guard.Dedup {
 	return guard.NewDedup(cfg.TypoDedupSize, ttl)
 }
 
+func typoCommentMaxURLs(cfg config.Config) int {
+	for _, v := range []int{cfg.TypoCommentMaxURLs, cfg.TypoMaxCommentURLs, cfg.TypoMaxURLs} {
+		if v != 0 {
+			return v
+		}
+	}
+	return cfg.TypoCommentMaxURLs
+}
+
+func countURLs(s string) int {
+	lower := strings.ToLower(s)
+	return strings.Count(lower, "http://") + strings.Count(lower, "https://")
+}
+
 func typoDedupKey(report intake.Report) string {
 	hostPath := report.URL
 	if u, err := url.Parse(report.URL); err == nil {
@@ -320,6 +334,23 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 					"url", report.URL, "origin", origin)
 				w.WriteHeader(http.StatusBadRequest)
 				return
+			}
+		}
+		// Refuse comments carrying more than the configured number of URLs, so a typo report cannot be used as a link farm.
+		maxURLs := typoCommentMaxURLs(s.cfg)
+		if maxURLs > 0 {
+			for _, report := range reports {
+				if report.Type != intake.TypeTypo {
+					continue
+				}
+				comment, _ := report.Body[intake.FieldComment].(string)
+				if countURLs(comment) > maxURLs {
+					s.emitter.CountDropped(r.Context(), telemetry.ReasonInvalid, "")
+					s.log.Warn("typo comment has too many urls", "client_ip", clientIP,
+						"urls", countURLs(comment), "max", maxURLs)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
 			}
 		}
 		// Collapse repeated typo reports: a report whose (host+path, selection, prefix, suffix) was seen within the TTL is dropped and counted rather than logged.

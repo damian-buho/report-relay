@@ -37,6 +37,9 @@ type Config struct {
 	TypoDedupOn          bool
 	TypoDedupSize        int
 	TypoDedupTTL         time.Duration
+	TypoCommentMaxURLs   int
+	TypoMaxCommentURLs   int
+	TypoMaxURLs          int
 	AllowedOrigins       []string
 	KeepQuery            bool
 	TrustProxy           bool
@@ -77,6 +80,7 @@ func Load() Config {
 		TypoDedupOn:          envBoolOr("REPORT_RELAY_TYPO_DEDUP", true),
 		TypoDedupSize:        envIntOr("REPORT_RELAY_TYPO_DEDUP_SIZE", 10000),
 		TypoDedupTTL:         envDurationOr("REPORT_RELAY_TYPO_DEDUP_TTL", 10*time.Minute),
+		TypoCommentMaxURLs:   envIntOr("REPORT_RELAY_TYPO_COMMENT_MAX_URLS", 2),
 		AllowedOrigins:       splitList(os.Getenv("REPORT_RELAY_ALLOWED_ORIGINS")),
 		KeepQuery:            envBoolOr("REPORT_RELAY_KEEP_QUERY", false),
 		TrustProxy:           envBoolOr("REPORT_RELAY_TRUST_PROXY", false),

@@ -61,7 +61,7 @@ func typoHook(report *Report) error {
 			delete(report.Body, key)
 			continue
 		}
-		report.Body[key] = clipUTF8(text, limit)
+		report.Body[key] = clipUTF8(sanitizeTypoText(text), limit)
 	}
 	selection, _ := report.Body[fieldSelection].(string)
 	if strings.TrimSpace(selection) == "" {
@@ -132,6 +132,24 @@ func NewTypoDedup(size int, ttl time.Duration) *guard.Dedup {
 
 func NewTypoDedupWithClock(size int, ttl time.Duration, now func() time.Time) *guard.Dedup {
 	return guard.NewDedupWithClock(size, ttl, now)
+}
+
+// sanitizeTypoText strips control characters and bidi override code points from a typo field.
+func sanitizeTypoText(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+			continue
+		}
+		if r >= 0x202a && r <= 0x202e {
+			continue
+		}
+		if r >= 0x2066 && r <= 0x2069 {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // fragmentTerm percent-encodes one text directive term, including the `-` the directive syntax reserves.
