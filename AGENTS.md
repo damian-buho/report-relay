@@ -29,6 +29,8 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - `REPORT_RELAY_ADMIN_PORT=8081` (`/healthz`, `/readyz`)
 - `REPORT_RELAY_MAX_BODY_BYTES=65536`, `REPORT_RELAY_MAX_JSON_DEPTH=32`, `REPORT_RELAY_MAX_ARRAY_ITEMS=512`, `REPORT_RELAY_MAX_BODY_KEYS=512`
 - `REPORT_RELAY_RATE_LIMIT_RPS=20`, `REPORT_RELAY_RATE_LIMIT_BURST=40`
+- `REPORT_RELAY_TYPO_RATE_PER_HOUR=30`, `REPORT_RELAY_TYPO_RATE_BURST=5` (also read as the legacy `REPORT_RELAY_TYPO_RATE_LIMIT_BURST`) — a second, stricter budget for the typo intake alone, its per-second rate derived from the hourly one
+- `REPORT_RELAY_TYPO_DEDUP=true`, `REPORT_RELAY_TYPO_DEDUP_SIZE=10000`, `REPORT_RELAY_TYPO_DEDUP_TTL=10m`, `REPORT_RELAY_TYPO_COMMENT_MAX_URLS=2` — collapse one repeated typo per bounded TTL cache, and cap the URLs a typo comment may carry (off at `0`)
 - `REPORT_RELAY_KEEP_QUERY=false`, `REPORT_RELAY_KEEP_QUERY_TYPES=""` — comma list of report types whose query string survives redaction (for example `typo`), independent of the global switch
 - `REPORT_RELAY_TRUST_PROXY=false`
 - `REPORT_RELAY_TRUSTED_PROXIES=""` — comma CIDRs or bare IPs honored as proxy peers; with the flag on but this empty, forwarded headers stay ignored, and a bad entry refuses to start

@@ -485,3 +485,44 @@ func TestLogEmitsConfiguration(t *testing.T) {
 		}
 	}
 }
+
+// TestTypoRateLimitsReadTheirOwnEnvVars pins the two legacy spellings the typo
+// budget accepts: an operator names an hourly budget or a raw per-second one.
+func TestTypoRateLimitsReadTheirOwnEnvVars(t *testing.T) {
+	t.Setenv("REPORT_RELAY_TYPO_RATE_PER_HOUR", "12")
+	t.Setenv("REPORT_RELAY_TYPO_RATE_BURST", "7")
+	cfg := Load()
+	if cfg.TypoRateLimitPerHour != 12 {
+		t.Errorf("TypoRateLimitPerHour = %d, want 12", cfg.TypoRateLimitPerHour)
+	}
+	if cfg.TypoRateLimitBurst != 7 {
+		t.Errorf("TypoRateLimitBurst = %d, want 7", cfg.TypoRateLimitBurst)
+	}
+	if cfg.TypoRateLimitRPS != 12.0/3600.0 {
+		t.Errorf("TypoRateLimitRPS = %v, want the hourly rate divided by the hour", cfg.TypoRateLimitRPS)
+	}
+}
+
+// TestTypoRateBurstFallsBackToTheLegacySpelling pins the older variable name,
+// which only the burst reads and only when the new one is unset.
+func TestTypoRateBurstFallsBackToTheLegacySpelling(t *testing.T) {
+	t.Setenv("REPORT_RELAY_TYPO_RATE_LIMIT_BURST", "9")
+	if got := Load().TypoRateLimitBurst; got != 9 {
+		t.Errorf("TypoRateLimitBurst = %d, want 9", got)
+	}
+}
+
+// TestTypoRateBudgetDefaultsWhenNothingIsSet pins the built-in values, which
+// keep a human report flood bounded without any configuration at all.
+func TestTypoRateBudgetDefaultsWhenNothingIsSet(t *testing.T) {
+	t.Setenv("REPORT_RELAY_TYPO_RATE_PER_HOUR", "")
+	t.Setenv("REPORT_RELAY_TYPO_RATE_BURST", "")
+	t.Setenv("REPORT_RELAY_TYPO_RATE_LIMIT_BURST", "")
+	cfg := Load()
+	if cfg.TypoRateLimitPerHour != 30 {
+		t.Errorf("TypoRateLimitPerHour = %d, want 30", cfg.TypoRateLimitPerHour)
+	}
+	if cfg.TypoRateLimitBurst != 5 {
+		t.Errorf("TypoRateLimitBurst = %d, want 5", cfg.TypoRateLimitBurst)
+	}
+}

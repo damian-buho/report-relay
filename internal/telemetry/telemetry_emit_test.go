@@ -9,13 +9,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -394,4 +398,88 @@ func TestCountingExporterShutdown(t *testing.T) {
 	if err := wrapped.Shutdown(context.Background()); err != nil {
 		t.Errorf("Shutdown: %v", err)
 	}
+}
+
+// TestErrClassNamesANetworkTimeout pins the second timeout arm: an error that
+// answers Timeout() itself, without being a context deadline.
+func TestErrClassNamesANetworkTimeout(t *testing.T) {
+	if got := errClass(timeoutError{}); got != "timeout" {
+		t.Errorf("errClass = %q, want timeout for a net.Timeout", got)
+	}
+}
+
+// timeoutError is a net-style timeout that is not a context deadline.
+type timeoutError struct{}
+
+func (timeoutError) Error() string { return "i/o timeout" }
+func (timeoutError) Timeout() bool { return true }
+
+// TestAttrValueRendersAnUnsetValueAsItsOwnString pins the default arm: a type
+// the switch does not name is not dropped, it rides as the SDK prints it.
+func TestAttrValueRendersAnUnsetValueAsItsOwnString(t *testing.T) {
+	if got := attrValue(attribute.Value{}); got != "" {
+		t.Errorf("attrValue(EMPTY) = %#v, want the SDK's own empty string", got)
+	}
+}
+
+// TestStringifyFallsBackWhenJSONRefusesTheValue pins the last arm: a decoded
+// body value the marshaller cannot render is still logged, as fmt prints it.
+func TestStringifyFallsBackWhenJSONRefusesTheValue(t *testing.T) {
+	unrenderable := make(chan int)
+	if got := stringify(unrenderable); got != fmt.Sprintf("%v", unrenderable) {
+		t.Errorf("stringify = %q, want the fmt rendering", got)
+	}
+}
+
+// stdoutForwarder is the seam a test needs to hand the exporter a record the
+// SDK itself built: only that path sets the attribute limits a bare Record
+// leaves at zero, which would drop every attribute.
+type stdoutForwarder struct{ exp *stdoutExporter }
+
+func (p *stdoutForwarder) Enabled(context.Context, sdklog.EnabledParameters) bool { return true }
+
+func (p *stdoutForwarder) OnEmit(ctx context.Context, record *sdklog.Record) error {
+	return p.exp.Export(ctx, []sdklog.Record{*record})
+}
+
+func (p *stdoutForwarder) Shutdown(context.Context) error   { return nil }
+func (p *stdoutForwarder) ForceFlush(context.Context) error { return nil }
+
+// TestStdoutExporterSkipsARecordItCannotRender pins the per-record skip: one
+// odd attribute costs its own line, never the batch or the neighbours.
+func TestStdoutExporterSkipsARecordItCannotRender(t *testing.T) {
+	var buf bytes.Buffer
+	provider := sdklog.NewLoggerProvider(
+		sdklog.WithAttributeCountLimit(128),
+		sdklog.WithProcessor(&stdoutForwarder{exp: &stdoutExporter{w: &buf}}),
+	)
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	logger := provider.Logger("report-relay")
+	emit := func(name string, attrs ...attribute.KeyValue) {
+		var record log.Record
+		record.SetEventName(name)
+		record.SetSeverity(log.SeverityInfo)
+		record.AddAttributes(attrs...)
+		logger.Emit(context.Background(), record)
+	}
+	emit("unrenderable", attribute.Float64("value", math.NaN()))
+	emit("renderable")
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("lines = %d (%q), want only the renderable record", len(lines), buf.String())
+	}
+	if !strings.Contains(lines[0], "renderable") {
+		t.Errorf("line = %q, want the surviving record", lines[0])
+	}
+}
+
+// TestQuietSDKErrorsRoutesToSlog pins the handler the SDK self-diagnostics
+// get: an unreachable collector is a debug line, not a repeated error.
+func TestQuietSDKErrorsRoutesToSlog(t *testing.T) {
+	quietSDKErrors()
+	handler := otel.GetErrorHandler()
+	if handler == nil {
+		t.Fatal("no error handler is installed, so the SDK logs on its own")
+	}
+	handler.Handle(errors.New("collector unreachable"))
 }

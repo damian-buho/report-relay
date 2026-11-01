@@ -379,3 +379,41 @@ func TestIODEFContactEmailIsKept(t *testing.T) {
 		t.Errorf("description = %v, want the sender's text", reports[0].Body["description"])
 	}
 }
+
+// TestIODEFStartAndEndTimesBecomeBodyKeys covers the two window timestamps the
+// minimal fixture leaves out, and the sender-side address of a contact.
+func TestIODEFStartAndEndTimesBecomeBodyKeys(t *testing.T) {
+	body := `<IODEF-Document><Incident purpose="reporting"><IncidentID name="ca1.example.net">caa-1</IncidentID>` +
+		`<StartTime>2026-09-25T00:00:00Z</StartTime><EndTime>2026-09-26T00:00:00Z</EndTime>` +
+		`<Contact type="organization" role="creator"><Email><EmailFrom>abuse@ca1.example.net</EmailFrom></Email></Contact>` +
+		`<Node><NodeName>` + iodefAltHost + `</NodeName></Node></Incident></IODEF-Document>`
+	reports, err := Decode(MediaIODEF, []byte(body), testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	got := reports[0].Body
+	if got["start-time"] != "2026-09-25T00:00:00Z" {
+		t.Errorf("start-time = %v, want the window start", got["start-time"])
+	}
+	if got["end-time"] != "2026-09-26T00:00:00Z" {
+		t.Errorf("end-time = %v, want the window end", got["end-time"])
+	}
+	if got["contact-email"] != "abuse@ca1.example.net" {
+		t.Errorf("contact-email = %v, want the from address", got["contact-email"])
+	}
+}
+
+// TestIODEFEmptyElementAddsNoListItem pins the empty-string arm: an element a
+// sender left blank contributes nothing to the list it belongs to.
+func TestIODEFEmptyElementAddsNoListItem(t *testing.T) {
+	body := `<IODEF-Document><Incident purpose="reporting"><IncidentID name="ca1.example.net">caa-1</IncidentID>` +
+		`<Description>kept</Description><Description></Description><Description>also kept</Description>` +
+		`<Node><NodeName>` + iodefAltHost + `</NodeName></Node></Incident></IODEF-Document>`
+	reports, err := Decode(MediaIODEF, []byte(body), testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if got := reports[0].Body["description"]; got != "kept | also kept" {
+		t.Errorf("description = %v, want the blank element skipped", got)
+	}
+}

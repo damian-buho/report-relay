@@ -776,3 +776,118 @@ func TestHPKPRejectsForeignJSON(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInvalidReport for non-pin JSON", err)
 	}
 }
+
+// TestDecodeRefusesAnUnknownMediaType pins the registry boundary: a media type
+// no decoder claims is named in the error, so an operator sees what arrived.
+func TestDecodeRefusesAnUnknownMediaType(t *testing.T) {
+	if _, err := Decode("application/vnd.not-ours", []byte(`{}`), testLimits(), false); !errors.Is(err, ErrUnsupportedType) {
+		t.Fatalf("err = %v, want ErrUnsupportedType", err)
+	}
+}
+
+func TestDecodeRefusesAnEmptyReportingAPIBatch(t *testing.T) {
+	if _, err := Decode(MediaReportingAPI, []byte(`[]`), testLimits(), false); !errors.Is(err, ErrNoReports) {
+		t.Fatalf("err = %v, want ErrNoReports for an empty batch", err)
+	}
+}
+
+func TestDecodeRefusesAMalformedReportingAPIBatch(t *testing.T) {
+	if _, err := Decode(MediaReportingAPI, []byte(`[{"type":`), testLimits(), false); err == nil {
+		t.Fatal("a truncated batch was accepted")
+	}
+}
+
+func TestDecodeRefusesAnEmptyLegacyCSPReport(t *testing.T) {
+	if _, err := Decode(MediaCSPReport, []byte(`{"csp-report":{}}`), testLimits(), false); !errors.Is(err, ErrNoReports) {
+		t.Fatalf("err = %v, want ErrNoReports for an empty csp-report", err)
+	}
+}
+
+func TestDecodeRefusesATLSRPTWithoutAnOrganization(t *testing.T) {
+	body := []byte(`{"contact-info":"tls@example.net","report-id":"r1","result-type":"aggregate",
+	  "failure-info":{"result-type":"aggregate","failing-sessions":{"expired":1}}}`)
+	if _, err := Decode(MediaTLSRPTJSON, body, testLimits(), false); !errors.Is(err, ErrNoReports) {
+		t.Fatalf("err = %v, want ErrNoReports for a nameless report", err)
+	}
+}
+
+func TestDecodeRefusesAnEmptyExpectCTReport(t *testing.T) {
+	if _, err := Decode(MediaExpectCT, []byte(`{"expect-ct-report":{}}`), testLimits(), false); !errors.Is(err, ErrNoReports) {
+		t.Fatalf("err = %v, want ErrNoReports for an empty expect-ct-report", err)
+	}
+}
+
+func TestDecodeRefusesAnEmptyIODEFBody(t *testing.T) {
+	if _, err := Decode(MediaIODEF, []byte("  \n\t "), testLimits(), false); !errors.Is(err, ErrNoReports) {
+		t.Fatalf("err = %v, want ErrNoReports for a blank body", err)
+	}
+}
+
+func TestDecodeRefusesAMalformedHPKPBody(t *testing.T) {
+	if _, err := Decode(MediaHPKP, []byte(`{"hostname":`), testLimits(), false); err == nil {
+		t.Fatal("a truncated body was accepted")
+	}
+}
+
+// TestKeepQueryTypesKeepsTheQueryForOneType pins the per-type allow list: the
+// global switch stays off, and one named type still keeps its query string,
+// which is the only way a typo’s own marker survives.
+func TestKeepQueryTypesKeepsTheQueryForOneType(t *testing.T) {
+	body := []byte(`[{"type":"typo","age":0,"url":"https://beta.example.com/post?token=secret",
+	  "body":{"selection":"tpyo"}}]`)
+	allowed, err := Decode(MediaReportingAPI, body, testLimits(), false, []string{TypeTypo})
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if !strings.Contains(allowed[0].URL, "token=secret") {
+		t.Errorf("url = %q, want the query kept for a listed type", allowed[0].URL)
+	}
+	kept, err := Decode(MediaReportingAPI, body, testLimits(), true)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if !strings.Contains(kept[0].URL, "token=secret") {
+		t.Errorf("url = %q, want the query kept when the global switch is on", kept[0].URL)
+	}
+	denied, err := Decode(MediaReportingAPI, body, testLimits(), false)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if strings.Contains(denied[0].URL, "token=secret") {
+		t.Errorf("url = %q, want the query redacted with the switch off", denied[0].URL)
+	}
+}
+
+func TestDecodeRefusesABodyThatIsNotAnObject(t *testing.T) {
+	body := []byte(`[{"type":"deprecation","age":1,"url":"https://beta.example.com/","body":123}]`)
+	if _, err := Decode(MediaReportingAPI, body, testLimits(), false); err == nil {
+		t.Fatal("a numeric body was accepted as an object")
+	}
+}
+
+func TestDecodeRefusesMalformedLegacyCSPJSON(t *testing.T) {
+	if _, err := Decode(MediaCSPReport, []byte(`{"csp-report":`), testLimits(), false); err == nil {
+		t.Fatal("a truncated legacy body was accepted")
+	}
+}
+
+func TestDecodeRefusesMalformedTLSRPTJSON(t *testing.T) {
+	if _, err := Decode(MediaTLSRPTJSON, []byte(`{"organization-name":`), testLimits(), false); err == nil {
+		t.Fatal("a truncated tlsrpt body was accepted")
+	}
+}
+
+// TestDecodeRefusesATLSRPTWithNothingToCount pins the RFC 8460 floor: one of
+// the two result shapes must be present, and neither is a report.
+func TestDecodeRefusesATLSRPTWithNothingToCount(t *testing.T) {
+	body := []byte(`{"organization-name":"example.net","contact-info":"tls@example.net","report-id":"r1"}`)
+	if _, err := Decode(MediaTLSRPTJSON, body, testLimits(), false); !errors.Is(err, ErrNoReports) {
+		t.Fatalf("err = %v, want ErrNoReports", err)
+	}
+}
+
+func TestDecodeRefusesMalformedExpectCTJSON(t *testing.T) {
+	if _, err := Decode(MediaExpectCT, []byte(`{"expect-ct-report":`), testLimits(), false); err == nil {
+		t.Fatal("a truncated expect-ct body was accepted")
+	}
+}

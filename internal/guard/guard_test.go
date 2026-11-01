@@ -229,7 +229,7 @@ func TestClientIPFallsBackWhenTheChainIsAllTrusted(t *testing.T) {
 }
 
 func TestParseTrustedProxies(t *testing.T) {
-	nets, err := ParseTrustedProxies([]string{"10.0.0.0/8", "192.0.2.1", " 2001:db8::/32 ", "2001:db8::1"})
+	nets, err := ParseTrustedProxies([]string{trustedRange, "192.0.2.1", " 2001:db8::/32 ", "2001:db8::1"})
 	if err != nil {
 		t.Fatalf("ParseTrustedProxies: %v", err)
 	}
