@@ -110,7 +110,7 @@
         "refresh": 2,
         "includeAll": true,
         "multi": true,
-        "allValue": ".*",
+        "allValue": ".+",
         "sort": 1,
         "hide": 0,
         "current": {
@@ -136,7 +136,7 @@
         "refresh": 2,
         "includeAll": true,
         "multi": true,
-        "allValue": ".*",
+        "allValue": ".+",
         "sort": 1,
         "hide": 0,
         "current": {
@@ -180,7 +180,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum(increase(report_relay_accepted_total{job=~\"$job\"}[$__range]))",
+          "expr": "sum ((increase(report_relay_accepted_total{job=~\"$job\"}[$__range]) unless (report_relay_accepted_total{job=~\"$job\"} unless report_relay_accepted_total{job=~\"$job\"} offset $__range)) or (report_relay_accepted_total{job=~\"$job\"} unless report_relay_accepted_total{job=~\"$job\"} offset $__range))",
           "editorMode": "code",
           "instant": true,
           "range": false
@@ -244,7 +244,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum(increase(report_relay_dropped_total{job=~\"$job\"}[$__range]))",
+          "expr": "sum ((increase(report_relay_dropped_total{job=~\"$job\"}[$__range]) unless (report_relay_dropped_total{job=~\"$job\"} unless report_relay_dropped_total{job=~\"$job\"} offset $__range)) or (report_relay_dropped_total{job=~\"$job\"} unless report_relay_dropped_total{job=~\"$job\"} offset $__range))",
           "editorMode": "code",
           "instant": true,
           "range": false
@@ -312,7 +312,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum(increase(report_relay_accepted_total{job=~\"$job\"}[$__range])) / sum(increase(report_relay_received_total{job=~\"$job\"}[$__range]))",
+          "expr": "sum ((increase(report_relay_accepted_total{job=~\"$job\"}[$__range]) unless (report_relay_accepted_total{job=~\"$job\"} unless report_relay_accepted_total{job=~\"$job\"} offset $__range)) or (report_relay_accepted_total{job=~\"$job\"} unless report_relay_accepted_total{job=~\"$job\"} offset $__range)) / sum ((increase(report_relay_received_total{job=~\"$job\"}[$__range]) unless (report_relay_received_total{job=~\"$job\"} unless report_relay_received_total{job=~\"$job\"} offset $__range)) or (report_relay_received_total{job=~\"$job\"} unless report_relay_received_total{job=~\"$job\"} offset $__range))",
           "editorMode": "code",
           "instant": true,
           "range": false
@@ -376,7 +376,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum(increase(report_relay_export_failures_total{job=~\"$job\"}[$__range]))",
+          "expr": "sum ((increase(report_relay_export_failures_total{job=~\"$job\"}[$__range]) unless (report_relay_export_failures_total{job=~\"$job\"} unless report_relay_export_failures_total{job=~\"$job\"} offset $__range)) or (report_relay_export_failures_total{job=~\"$job\"} unless report_relay_export_failures_total{job=~\"$job\"} offset $__range))",
           "editorMode": "code",
           "instant": true,
           "range": false
@@ -444,7 +444,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "count(sum by (report_type) (increase(report_relay_accepted_total{job=~\"$job\"}[$__range]) > 0))",
+          "expr": "count(sum by (report_type) ((increase(report_relay_accepted_total{job=~\"$job\"}[$__range]) unless (report_relay_accepted_total{job=~\"$job\"} unless report_relay_accepted_total{job=~\"$job\"} offset $__range)) or (report_relay_accepted_total{job=~\"$job\"} unless report_relay_accepted_total{job=~\"$job\"} offset $__range)) > 0)",
           "editorMode": "code",
           "instant": true,
           "range": false
@@ -495,39 +495,38 @@
     },
     {
       "type": "timeseries",
-      "title": "Accepted by domain",
-      "description": "Reports per second, stacked by domain: browser, mail, cert, content.",
+      "title": "Reports by domain",
+      "description": "Reports stored per interval, stacked by domain: browser, mail, cert, content.",
       "datasource": {
-        "type": "prometheus",
-        "uid": "${prometheus}"
+        "type": "loki",
+        "uid": "${loki}"
       },
       "targets": [
         {
           "refId": "A",
           "datasource": {
-            "type": "prometheus",
-            "uid": "${prometheus}"
+            "type": "loki",
+            "uid": "${loki}"
           },
-          "expr": "sum by (domain) (rate(report_relay_accepted_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum by (event_domain) (count_over_time({service_name=~\"$service\", event_domain=~\"$domain\"} [$__interval]))",
           "editorMode": "code",
-          "legendFormat": "{{domain}}",
-          "instant": false,
-          "range": true
+          "legendFormat": "{{event_domain}}",
+          "queryType": "range"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
+          "unit": "short",
           "min": 0,
           "color": {
             "mode": "palette-classic"
           },
           "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
             "pointSize": 8,
-            "showPoints": "never",
+            "showPoints": "always",
             "barAlignment": 0,
             "spanNulls": false,
             "stacking": {
@@ -562,12 +561,13 @@
         "w": 12,
         "x": 0,
         "y": 5
-      }
+      },
+      "interval": "1h"
     },
     {
       "type": "timeseries",
       "title": "Dropped by reason",
-      "description": "Reports per second the intake refused, by reason. queue-full is loss under load, rate-limited is one sender over its budget.",
+      "description": "Reports the intake refused per interval, by reason. queue-full is loss under load, rate-limited is one sender over its budget.",
       "datasource": {
         "type": "prometheus",
         "uid": "${prometheus}"
@@ -579,7 +579,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum by (reason) (rate(report_relay_dropped_total{job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum by (reason) (increase(report_relay_dropped_total{job=~\"$job\"}[$__interval]))",
           "editorMode": "code",
           "legendFormat": "{{reason}}",
           "instant": false,
@@ -588,15 +588,15 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
+          "unit": "short",
           "min": 0,
           "color": {
             "mode": "palette-classic"
           },
           "custom": {
-            "drawStyle": "line",
+            "drawStyle": "bars",
             "lineWidth": 2,
-            "fillOpacity": 10,
+            "fillOpacity": 80,
             "pointSize": 8,
             "showPoints": "never",
             "barAlignment": 0,
@@ -650,7 +650,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sort_desc(sum by (report_type) (increase(report_relay_accepted_total{job=~\"$job\"}[$__range])))",
+          "expr": "sort_desc(sum by (report_type) ((increase(report_relay_accepted_total{job=~\"$job\"}[$__range]) unless (report_relay_accepted_total{job=~\"$job\"} unless report_relay_accepted_total{job=~\"$job\"} offset $__range)) or (report_relay_accepted_total{job=~\"$job\"} unless report_relay_accepted_total{job=~\"$job\"} offset $__range)))",
           "editorMode": "code",
           "legendFormat": "{{report_type}}",
           "instant": true,
@@ -673,9 +673,9 @@
         "orientation": "horizontal",
         "displayMode": "basic",
         "showUnfilled": true,
-        "valueMode": "text",
+        "valueMode": "color",
         "namePlacement": "left",
-        "sizing": "auto",
+        "sizing": "manual",
         "minVizHeight": 16,
         "maxVizHeight": 24,
         "reduceOptions": {
@@ -731,9 +731,9 @@
         "orientation": "horizontal",
         "displayMode": "basic",
         "showUnfilled": true,
-        "valueMode": "text",
+        "valueMode": "color",
         "namePlacement": "left",
-        "sizing": "auto",
+        "sizing": "manual",
         "minVizHeight": 16,
         "maxVizHeight": 24,
         "reduceOptions": {
@@ -807,14 +807,16 @@
               "directive": "Directive",
               "blocked": "Blocked",
               "disposition": "Disposition",
-              "Value": "Reports"
+              "Value": "Reports",
+              "Value #A": "Reports"
             },
             "indexByName": {
               "site": 0,
               "directive": 1,
               "blocked": 2,
               "disposition": 3,
-              "Value": 4
+              "Value": 4,
+              "Value #A": 4
             }
           }
         },
@@ -915,12 +917,14 @@
             "renameByName": {
               "event_name": "Type",
               "site": "Site",
-              "Value": "Reports"
+              "Value": "Reports",
+              "Value #A": "Reports"
             },
             "indexByName": {
               "event_name": 0,
               "site": 1,
-              "Value": 2
+              "Value": 2,
+              "Value #A": 2
             }
           }
         },
@@ -1035,13 +1039,15 @@
               "organization": "Organization",
               "event_name": "Result",
               "server": "Server",
-              "Value": "Reports"
+              "Value": "Reports",
+              "Value #A": "Reports"
             },
             "indexByName": {
               "organization": 0,
               "event_name": 1,
               "server": 2,
-              "Value": 3
+              "Value": 3,
+              "Value #A": 3
             }
           }
         },
