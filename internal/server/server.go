@@ -225,6 +225,8 @@ func (s *Server) allowClient(w http.ResponseWriter, r *http.Request) (string, bo
 	clientIP := guard.ClientIP(r, s.cfg.TrustProxy, s.trusted)
 	if !s.limiter.Allow(clientIP) {
 		s.log.Warn("rate limited", "client_ip", clientIP,
+			"reason", telemetry.ReasonRateLimited, "origin", r.Header.Get("Origin"),
+			"user_agent", r.Header.Get("User-Agent"), "content_type", r.Header.Get("Content-Type"),
 			"rate_limit_rps", s.cfg.RateLimitRPS, "burst", s.cfg.RateLimitBurst)
 		w.Header().Set("Retry-After", "1")
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -248,7 +250,8 @@ func (s *Server) handleIntake(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		s.emitter.CountDropped(r.Context(), telemetry.ReasonUnsupported, "")
 		s.log.Warn("unsupported content type", "content_type", mediaType,
-			"client_ip", clientIP)
+			"client_ip", clientIP, "origin", r.Header.Get("Origin"),
+			"user_agent", r.Header.Get("User-Agent"))
 		w.WriteHeader(http.StatusUnsupportedMediaType)
 		return
 	}
@@ -277,7 +280,8 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 			}
 			s.emitter.CountDropped(r.Context(), reason, "")
 			s.log.Warn("body rejected", "reason", reason, "source", source,
-				"client_ip", clientIP, "max_body_bytes", s.cfg.MaxBodyBytes, "error", err)
+				"client_ip", clientIP, "origin", r.Header.Get("Origin"),
+				"user_agent", r.Header.Get("User-Agent"), "max_body_bytes", s.cfg.MaxBodyBytes, "error", err)
 			writeGuardError(w, reason)
 			return
 		}
@@ -301,7 +305,8 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 			}
 			s.emitter.CountDropped(r.Context(), reason, "")
 			s.log.Warn("report rejected", "reason", reason, "source", source,
-				"client_ip", clientIP, "bytes", len(body), "error", err)
+				"client_ip", clientIP, "origin", r.Header.Get("Origin"),
+				"user_agent", r.Header.Get("User-Agent"), "bytes", len(body), "error", err)
 			writeGuardError(w, reason)
 			return
 		}
@@ -316,6 +321,8 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 		if hasTypo && s.typoLimiter != nil && !s.typoLimiter.Allow(clientIP) {
 			s.emitter.CountDropped(r.Context(), telemetry.ReasonRateLimited, "")
 			s.log.Warn("typo rate limited", "client_ip", clientIP,
+				"reason", telemetry.ReasonRateLimited, "origin", r.Header.Get("Origin"),
+				"user_agent", r.Header.Get("User-Agent"), "content_type", r.Header.Get("Content-Type"),
 				"typo_rate_per_hour", s.cfg.TypoRateLimitPerHour, "typo_burst", s.cfg.TypoRateLimitBurst)
 			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -331,7 +338,8 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 			if !intake.TypoURLAllowed(report.URL, origin, originRequired) {
 				s.emitter.CountDropped(r.Context(), telemetry.ReasonInvalid, "")
 				s.log.Warn("typo origin rejected", "client_ip", clientIP,
-					"url", report.URL, "origin", origin)
+					"reason", telemetry.ReasonInvalid, "url", report.URL, "origin", origin,
+					"user_agent", r.Header.Get("User-Agent"), "content_type", r.Header.Get("Content-Type"))
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -347,7 +355,9 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 				if countURLs(comment) > maxURLs {
 					s.emitter.CountDropped(r.Context(), telemetry.ReasonInvalid, "")
 					s.log.Warn("typo comment has too many urls", "client_ip", clientIP,
-						"urls", countURLs(comment), "max", maxURLs)
+						"reason", telemetry.ReasonInvalid, "urls", countURLs(comment), "max", maxURLs,
+						"origin", origin, "user_agent", r.Header.Get("User-Agent"),
+						"content_type", r.Header.Get("Content-Type"))
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
@@ -365,7 +375,9 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 				key := typoDedupKey(report)
 				if s.typoDedup.Seen(key) {
 					s.emitter.CountDropped(r.Context(), telemetry.ReasonDuplicate, "")
-					s.log.Debug("typo duplicate dropped", "client_ip", clientIP, "key", key)
+					s.log.Warn("typo duplicate dropped", "client_ip", clientIP,
+						"reason", telemetry.ReasonDuplicate, "key", key, "origin", origin,
+						"user_agent", r.Header.Get("User-Agent"), "content_type", r.Header.Get("Content-Type"))
 					continue
 				}
 				filtered = append(filtered, report)

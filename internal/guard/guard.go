@@ -211,6 +211,20 @@ func ParseTrustedProxies(cidrs []string) ([]*net.IPNet, error) {
 	return out, nil
 }
 
+// DeniedCIDR reports the first deny network containing ip, or "" when none.
+func DeniedCIDR(ip string, nets []*net.IPNet) string {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return ""
+	}
+	for _, network := range nets {
+		if network.Contains(parsed) {
+			return network.String()
+		}
+	}
+	return ""
+}
+
 // isTrusted reports whether host is an IP inside one of the trusted networks.
 func isTrusted(host string, trusted []*net.IPNet) bool {
 	ip := net.ParseIP(strings.TrimSpace(host))
