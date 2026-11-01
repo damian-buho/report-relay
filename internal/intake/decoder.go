@@ -12,7 +12,7 @@ import (
 )
 
 // Decoder turns one request body into the reports it carries.
-type Decoder func(body []byte, limits guard.Limits, keepQuery bool) ([]Report, error)
+type Decoder func(body []byte, limits guard.Limits, keepQuery bool, keepQueryTypes []string) ([]Report, error)
 
 // decoder pairs a media type with the function that reads it.
 type decoder struct {
@@ -53,7 +53,7 @@ func indexByte(s string, c byte) int {
 }
 
 // decodeReportingAPI reads a Reporting API batch: a JSON array of reports.
-func decodeReportingAPI(body []byte, limits guard.Limits, keepQuery bool) ([]Report, error) {
+func decodeReportingAPI(body []byte, limits guard.Limits, keepQuery bool, keepQueryTypes []string) ([]Report, error) {
 	var envelopes []reportEnvelope
 	if err := guard.Decode(body, &envelopes, limits); err != nil {
 		return nil, err
@@ -63,7 +63,7 @@ func decodeReportingAPI(body []byte, limits guard.Limits, keepQuery bool) ([]Rep
 	}
 	reports := make([]Report, 0, len(envelopes))
 	for _, env := range envelopes {
-		report, err := reportingAPIReport(env, limits, keepQuery)
+		report, err := reportingAPIReport(env, limits, keepQuery, keepQueryTypes)
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +82,7 @@ func keepRawType(report *Report, raw string) {
 	report.Body["reported-type"] = clipUTF8(raw, maxTypeBytes)
 }
 
-func reportingAPIReport(env reportEnvelope, limits guard.Limits, keepQuery bool) (Report, error) {
+func reportingAPIReport(env reportEnvelope, limits guard.Limits, keepQuery bool, keepQueryTypes []string) (Report, error) {
 	report := Report{
 		Type:   normalizeType(env.Type),
 		Domain: DomainBrowser,
@@ -100,9 +100,10 @@ func reportingAPIReport(env reportEnvelope, limits guard.Limits, keepQuery bool)
 		}
 	}
 	keepRawType(&report, env.Type)
-	if !keepQuery {
+	keep := keepQueryFor(report.Type, keepQuery, keepQueryTypes)
+	if !keep {
 		report.URL = redactURL(report.URL)
-		redactBody(report.Body, keepQuery, limits.MaxJSONDepth)
+		redactBody(report.Body, keep, limits.MaxJSONDepth)
 	}
 	if hook, ok := bodyHooks[report.Type]; ok {
 		if err := hook(&report); err != nil {
@@ -115,12 +116,16 @@ func reportingAPIReport(env reportEnvelope, limits guard.Limits, keepQuery bool)
 // Decode reads one body in the named wire format. It is the only entry point
 // the HTTP layer needs: adding a format means adding a decoders entry, not
 // touching a caller.
-func Decode(mediaType string, body []byte, limits guard.Limits, keepQuery bool) ([]Report, error) {
+func Decode(mediaType string, body []byte, limits guard.Limits, keepQuery bool, keepQueryTypes ...[]string) ([]Report, error) {
 	dec, ok := decoders[mediaType]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedType, mediaType)
 	}
-	reports, err := dec.decode(body, limits, keepQuery)
+	var types []string
+	if len(keepQueryTypes) > 0 {
+		types = keepQueryTypes[0]
+	}
+	reports, err := dec.decode(body, limits, keepQuery, types)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +158,7 @@ type cspReportEnvelope struct {
 
 // decodeCSPReport normalises the legacy body into the Reporting API shape, so a
 // query never has to care which mechanism the browser used.
-func decodeCSPReport(body []byte, limits guard.Limits, keepQuery bool) ([]Report, error) {
+func decodeCSPReport(body []byte, limits guard.Limits, keepQuery bool, keepQueryTypes []string) ([]Report, error) {
 	var env cspReportEnvelope
 	if err := guard.Decode(body, &env, limits); err != nil {
 		return nil, err
@@ -170,9 +175,10 @@ func decodeCSPReport(body []byte, limits guard.Limits, keepQuery bool) ([]Report
 	if doc, ok := env.CSPReport["document-uri"].(string); ok {
 		report.URL = doc
 	}
-	if !keepQuery {
+	keep := keepQueryFor(report.Type, keepQuery, keepQueryTypes)
+	if !keep {
 		report.URL = redactURL(report.URL)
-		redactBody(report.Body, keepQuery, limits.MaxJSONDepth)
+		redactBody(report.Body, keep, limits.MaxJSONDepth)
 	}
 	if hook, ok := bodyHooks[report.Type]; ok {
 		if err := hook(&report); err != nil {
@@ -239,7 +245,7 @@ type failureDetail struct {
 // decodeTLSRPT turns one RFC 8460 report into one record per failure: one per
 // failure-details entry for an individual report, one per result type for an
 // aggregate report, whose session counts ride along as attributes.
-func decodeTLSRPT(body []byte, limits guard.Limits, _ bool) ([]Report, error) {
+func decodeTLSRPT(body []byte, limits guard.Limits, _ bool, _ []string) ([]Report, error) {
 	var env tlsRPTEnvelope
 	if err := guard.Decode(body, &env, limits); err != nil {
 		return nil, err
@@ -298,7 +304,7 @@ type expectCTEnvelope struct {
 
 // decodeExpectCT reads one RFC 9163 violation report. The hostname is the
 // record's subject: a report without one names nothing to select on.
-func decodeExpectCT(body []byte, limits guard.Limits, keepQuery bool) ([]Report, error) {
+func decodeExpectCT(body []byte, limits guard.Limits, keepQuery bool, keepQueryTypes []string) ([]Report, error) {
 	var env expectCTEnvelope
 	if err := guard.Decode(body, &env, limits); err != nil {
 		return nil, err
@@ -317,8 +323,9 @@ func decodeExpectCT(body []byte, limits guard.Limits, keepQuery bool) ([]Report,
 		URL:    host,
 		Body:   env.ExpectCT,
 	}
-	if !keepQuery {
-		redactBody(report.Body, keepQuery, limits.MaxJSONDepth)
+	keep := keepQueryFor(report.Type, keepQuery, keepQueryTypes)
+	if !keep {
+		redactBody(report.Body, keep, limits.MaxJSONDepth)
 	}
 	return []Report{report}, nil
 }
@@ -335,7 +342,7 @@ var hpkpKeys = []string{
 // decodeHPKP reads one RFC 7469 pin validation failure. HPKP registered no
 // media type of its own, so this runs on plain application/json and admits
 // only the exact report shape.
-func decodeHPKP(body []byte, limits guard.Limits, keepQuery bool) ([]Report, error) {
+func decodeHPKP(body []byte, limits guard.Limits, keepQuery bool, keepQueryTypes []string) ([]Report, error) {
 	var reportBody map[string]any
 	if err := guard.Decode(body, &reportBody, limits); err != nil {
 		return nil, err
@@ -353,8 +360,9 @@ func decodeHPKP(body []byte, limits guard.Limits, keepQuery bool) ([]Report, err
 		URL:    host,
 		Body:   reportBody,
 	}
-	if !keepQuery {
-		redactBody(report.Body, keepQuery, limits.MaxJSONDepth)
+	keep := keepQueryFor(report.Type, keepQuery, keepQueryTypes)
+	if !keep {
+		redactBody(report.Body, keep, limits.MaxJSONDepth)
 	}
 	return []Report{report}, nil
 }

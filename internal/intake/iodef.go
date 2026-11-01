@@ -35,7 +35,7 @@ type iodefIncident struct {
 	references   []string
 }
 
-func decodeIODEF(body []byte, limits guard.Limits, keepQuery bool) ([]Report, error) {
+func decodeIODEF(body []byte, limits guard.Limits, keepQuery bool, keepQueryTypes []string) ([]Report, error) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil, fmt.Errorf("%w: empty iodef body", ErrNoReports)
 	}
@@ -122,7 +122,7 @@ func decodeIODEF(body []byte, limits guard.Limits, keepQuery bool) ([]Report, er
 		if inc.id == "" {
 			return nil, fmt.Errorf("%w: incident without IncidentID", ErrInvalidReport)
 		}
-		reports = append(reports, iodefReport(inc, keepQuery))
+		reports = append(reports, iodefReport(inc, keepQuery, keepQueryTypes))
 	}
 	return reports, nil
 }
@@ -181,11 +181,12 @@ func clipIODEF(s string) string {
 	return clipUTF8(strings.TrimSpace(s), maxTextBytes)
 }
 
-func iodefReport(inc *iodefIncident, keepQuery bool) Report {
+func iodefReport(inc *iodefIncident, keepQuery bool, keepQueryTypes []string) Report {
+	keep := keepQueryFor(typeIodef, keepQuery, keepQueryTypes)
 	url := firstIODEF(inc.domains, inc.nodes, inc.addresses)
 	if url == "" && len(inc.references) > 0 {
 		url = redactURL(inc.references[0])
-	} else if !keepQuery {
+	} else if !keep {
 		url = redactURL(url)
 	}
 	body := map[string]any{"incident-id": inc.id}

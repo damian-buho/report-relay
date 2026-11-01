@@ -285,7 +285,7 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 			writeGuardError(w, reason)
 			return
 		}
-		reports, err := intake.Decode(mediaType, body, s.limits, s.cfg.KeepQuery)
+		reports, err := intake.Decode(mediaType, body, s.limits, s.cfg.KeepQuery, s.cfg.KeepQueryTypes)
 		if err != nil {
 			reason := telemetry.ReasonInvalid
 			switch {

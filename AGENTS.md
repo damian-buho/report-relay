@@ -29,7 +29,8 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - `REPORT_RELAY_ADMIN_PORT=8081` (`/healthz`, `/readyz`)
 - `REPORT_RELAY_MAX_BODY_BYTES=65536`, `REPORT_RELAY_MAX_JSON_DEPTH=32`, `REPORT_RELAY_MAX_ARRAY_ITEMS=512`, `REPORT_RELAY_MAX_BODY_KEYS=512`
 - `REPORT_RELAY_RATE_LIMIT_RPS=20`, `REPORT_RELAY_RATE_LIMIT_BURST=40`
-- `REPORT_RELAY_KEEP_QUERY=false`, `REPORT_RELAY_TRUST_PROXY=false`
+- `REPORT_RELAY_KEEP_QUERY=false`, `REPORT_RELAY_KEEP_QUERY_TYPES=""` — comma list of report types whose query string survives redaction (for example `typo`), independent of the global switch
+- `REPORT_RELAY_TRUST_PROXY=false`
 - `REPORT_RELAY_TRUSTED_PROXIES=""` — comma CIDRs or bare IPs honored as proxy peers; with the flag on but this empty, forwarded headers stay ignored, and a bad entry refuses to start
 - `REPORT_RELAY_EXPORT_TIMEOUT=10s` is the per-attempt deadline of one OTLP export call; `REPORT_RELAY_SHUTDOWN_TIMEOUT=15s`
 - `REPORT_RELAY_QUEUE_SIZE=2048`, `REPORT_RELAY_BATCH_TIMEOUT=5s`

@@ -42,6 +42,7 @@ type Config struct {
 	TypoMaxURLs          int
 	AllowedOrigins       []string
 	KeepQuery            bool
+	KeepQueryTypes       []string
 	TrustProxy           bool
 	TrustedProxyCIDRs    []string
 	ExportTimeout        time.Duration
@@ -83,6 +84,7 @@ func Load() Config {
 		TypoCommentMaxURLs:   envIntOr("REPORT_RELAY_TYPO_COMMENT_MAX_URLS", 2),
 		AllowedOrigins:       splitList(os.Getenv("REPORT_RELAY_ALLOWED_ORIGINS")),
 		KeepQuery:            envBoolOr("REPORT_RELAY_KEEP_QUERY", false),
+		KeepQueryTypes:       splitList(os.Getenv("REPORT_RELAY_KEEP_QUERY_TYPES")),
 		TrustProxy:           envBoolOr("REPORT_RELAY_TRUST_PROXY", false),
 		TrustedProxyCIDRs:    splitList(os.Getenv("REPORT_RELAY_TRUSTED_PROXIES")),
 		ExportTimeout:        envDurationOr("REPORT_RELAY_EXPORT_TIMEOUT", 10*time.Second),
@@ -127,6 +129,7 @@ func (c Config) Log(log *slog.Logger) {
 		"typo_dedup_ttl", c.TypoDedupTTL,
 		"allowed_origins", c.AllowedOrigins,
 		"keep_query", c.KeepQuery,
+		"keep_query_types", c.KeepQueryTypes,
 		"trust_proxy", c.TrustProxy,
 		"trusted_proxies", c.TrustedProxyCIDRs,
 		"export_timeout", c.ExportTimeout,

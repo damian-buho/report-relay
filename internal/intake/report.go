@@ -124,6 +124,25 @@ var urlFields = map[string]bool{
 	fieldDocumentURL:  true,
 }
 
+// keepQueryFor reports whether the query string survives redaction for a report
+// type, given the global switch and the per-type allow list.
+func keepQueryFor(reportType string, global bool, types []string) bool {
+	if global {
+		return true
+	}
+	for _, item := range types {
+		if strings.EqualFold(strings.TrimSpace(item), reportType) {
+			return true
+		}
+	}
+	return false
+}
+
+// KeepQueryFor is the exported form of keepQueryFor.
+func KeepQueryFor(reportType string, global bool, types []string) bool {
+	return keepQueryFor(reportType, global, types)
+}
+
 // redactURL drops the query string, the fragment and any userinfo of a URL,
 // keeping the part that identifies the resource.
 func redactURL(value string) string {
