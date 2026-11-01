@@ -235,6 +235,8 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 				reason = telemetry.ReasonTooLarge
 			case errors.Is(err, intake.ErrDisabled):
 				reason = telemetry.ReasonDisabled
+			case errors.Is(err, intake.ErrBadURL):
+				reason = telemetry.ReasonInvalid
 			case errors.Is(err, intake.ErrInvalidReport):
 				reason = telemetry.ReasonSchema
 			case errors.Is(err, intake.ErrNoReports), errors.Is(err, intake.ErrUnsupportedType):
@@ -245,6 +247,21 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 				"client_ip", clientIP, "bytes", len(body), "error", err)
 			writeGuardError(w, reason)
 			return
+		}
+		// A typo report's page URL must belong to the request's own origin: rejects javascript:/data: URLs and cross-site flooding; a missing Origin is rejected only when an allow-list is configured.
+		origin := r.Header.Get("Origin")
+		originRequired := len(s.cfg.AllowedOrigins) > 0
+		for _, report := range reports {
+			if report.Type != intake.TypeTypo {
+				continue
+			}
+			if !intake.TypoURLAllowed(report.URL, origin, originRequired) {
+				s.emitter.CountDropped(r.Context(), telemetry.ReasonInvalid, "")
+				s.log.Warn("typo origin rejected", "client_ip", clientIP,
+					"url", report.URL, "origin", origin)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 		}
 		for _, report := range reports {
 			s.emitter.CountReceived(r.Context(), report.Type, report.Domain)

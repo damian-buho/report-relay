@@ -20,6 +20,9 @@ const (
 	fieldTextFragment = "text_fragment"
 )
 
+// ErrBadURL is returned when a typo report's page URL is not a usable http(s) URL.
+var ErrBadURL = errors.New("report url must be http(s)")
+
 // maxLangBytes bounds the language tag, far above the longest real BCP 47 tag.
 const maxLangBytes = 64
 
@@ -61,6 +64,11 @@ func typoHook(report *Report) error {
 	if strings.TrimSpace(selection) == "" {
 		return errors.New("body is missing \"selection\"")
 	}
+	// A typo report's page URL becomes a clickable data link in the inbox, so it must be a real http(s) URL; anything else (javascript:, data:, ...) is dropped before it can be stored.
+	pageURL, err := url.Parse(report.URL)
+	if err != nil || (pageURL.Scheme != "http" && pageURL.Scheme != "https") || pageURL.Host == "" {
+		return ErrBadURL
+	}
 	report.Domain = DomainContent
 	report.Body[fieldTextFragment] = textFragment(report.URL, report.Body)
 	return nil
@@ -79,6 +87,25 @@ func textFragment(pageURL string, body map[string]any) string {
 		return pageURL + ":~:text=" + directive
 	}
 	return pageURL + "#:~:text=" + directive
+}
+
+// TypeTypo is the public name of the typo report type, so callers outside the intake package can recognise it.
+const TypeTypo = typeTypo
+
+// TypoURLAllowed reports whether a typo report's page URL is acceptable for the request that carried it: http(s) with a host, and, when an origin is present, a host matching the request Origin; a missing origin is accepted only when the caller does not require one.
+func TypoURLAllowed(pageURL, origin string, originRequired bool) bool {
+	parsed, err := url.Parse(pageURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return false
+	}
+	if origin == "" {
+		return !originRequired
+	}
+	originURL, err := url.Parse(origin)
+	if err != nil || originURL.Host == "" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSuffix(parsed.Hostname(), "."), strings.TrimSuffix(originURL.Hostname(), "."))
 }
 
 // fragmentTerm percent-encodes one text directive term, including the `-` the directive syntax reserves.
