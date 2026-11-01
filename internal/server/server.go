@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"kiota.ch/damian-buho/report-relay/internal/config"
@@ -33,6 +35,7 @@ type Server struct {
 	emitter     *telemetry.Emitter
 	limiter     *guard.Limiter
 	typoLimiter *guard.Limiter
+	typoDedup   *guard.Dedup
 	limits      guard.Limits
 	trusted     []*net.IPNet
 	handlers    map[string]http.HandlerFunc
@@ -51,6 +54,7 @@ func New(cfg config.Config, log *slog.Logger, emitter *telemetry.Emitter, ready 
 		emitter:     emitter,
 		limiter:     guard.NewLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst),
 		typoLimiter: newTypoLimiter(cfg),
+		typoDedup:   newTypoDedup(cfg),
 		limits: guard.Limits{
 			MaxBodyBytes:  cfg.MaxBodyBytes,
 			MaxJSONDepth:  cfg.MaxJSONDepth,
@@ -89,9 +93,31 @@ func newTypoLimiter(cfg config.Config) *guard.Limiter {
 	}
 	burst := cfg.TypoRateLimitBurst
 	if burst < 1 {
-		burst = 1
+		burst = 5
 	}
 	return guard.NewLimiter(rps, burst)
+}
+
+func newTypoDedup(cfg config.Config) *guard.Dedup {
+	if !cfg.TypoDedupOn || cfg.TypoDedupSize <= 0 {
+		return nil
+	}
+	ttl := cfg.TypoDedupTTL
+	if ttl <= 0 {
+		ttl = 10 * time.Minute
+	}
+	return guard.NewDedup(cfg.TypoDedupSize, ttl)
+}
+
+func typoDedupKey(report intake.Report) string {
+	hostPath := report.URL
+	if u, err := url.Parse(report.URL); err == nil {
+		hostPath = u.Host + u.Path
+	}
+	selection, _ := report.Body[intake.FieldSelection].(string)
+	prefix, _ := report.Body[intake.FieldPrefix].(string)
+	suffix, _ := report.Body[intake.FieldSuffix].(string)
+	return strings.Join([]string{hostPath, selection, prefix, suffix}, "\x00")
 }
 
 // IntakeHandler returns the public intake mux.
@@ -295,6 +321,29 @@ func (s *Server) intake(source string, enabled bool) http.HandlerFunc {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
+		}
+		// Collapse repeated typo reports: a report whose (host+path, selection, prefix, suffix) was seen within the TTL is dropped and counted rather than logged.
+		if s.typoDedup != nil {
+			// avoid aliasing the backing array when we append
+			filtered := make([]intake.Report, 0, len(reports))
+			for _, report := range reports {
+				if report.Type != intake.TypeTypo {
+					filtered = append(filtered, report)
+					continue
+				}
+				key := typoDedupKey(report)
+				if s.typoDedup.Seen(key) {
+					s.emitter.CountDropped(r.Context(), telemetry.ReasonDuplicate, "")
+					s.log.Debug("typo duplicate dropped", "client_ip", clientIP, "key", key)
+					continue
+				}
+				filtered = append(filtered, report)
+			}
+			if len(filtered) == 0 {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			reports = filtered
 		}
 		for _, report := range reports {
 			s.emitter.CountReceived(r.Context(), report.Type, report.Domain)

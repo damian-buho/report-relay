@@ -42,6 +42,7 @@ const (
 	ReasonInvalid     = "invalid"
 	ReasonSchema      = "schema"
 	ReasonQueueFull   = "queue-full"
+	ReasonDuplicate   = "duplicate"
 )
 
 // Emitter is the service's own telemetry surface: one log record per report,

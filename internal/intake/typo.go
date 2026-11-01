@@ -8,6 +8,9 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"time"
+
+	"kiota.ch/damian-buho/report-relay/internal/guard"
 )
 
 // The typo body keys: the only ones a typo report keeps.
@@ -92,6 +95,16 @@ func textFragment(pageURL string, body map[string]any) string {
 // TypeTypo is the public name of the typo report type, so callers outside the intake package can recognise it.
 const TypeTypo = typeTypo
 
+// Exported aliases of the typo field names, so callers outside the intake package can read them.
+const (
+	FieldSelection    = fieldSelection
+	FieldPrefix       = fieldPrefix
+	FieldSuffix       = fieldSuffix
+	FieldComment      = fieldComment
+	FieldLang         = fieldLang
+	FieldTextFragment = fieldTextFragment
+)
+
 // TypoURLAllowed reports whether a typo report's page URL is acceptable for the request that carried it: http(s) with a host, and, when an origin is present, a host matching the request Origin; a missing origin is accepted only when the caller does not require one.
 func TypoURLAllowed(pageURL, origin string, originRequired bool) bool {
 	parsed, err := url.Parse(pageURL)
@@ -106,6 +119,19 @@ func TypoURLAllowed(pageURL, origin string, originRequired bool) bool {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSuffix(parsed.Hostname(), "."), strings.TrimSuffix(originURL.Hostname(), "."))
+}
+
+// TypoDedup is an alias for the guard dedup cache, exposed under the intake
+// package for callers that look for it there.
+type TypoDedup = guard.Dedup
+
+// NewTypoDedup and its clock variant are aliases for the guard constructors.
+func NewTypoDedup(size int, ttl time.Duration) *guard.Dedup {
+	return guard.NewDedup(size, ttl)
+}
+
+func NewTypoDedupWithClock(size int, ttl time.Duration, now func() time.Time) *guard.Dedup {
+	return guard.NewDedupWithClock(size, ttl, now)
 }
 
 // fragmentTerm percent-encodes one text directive term, including the `-` the directive syntax reserves.

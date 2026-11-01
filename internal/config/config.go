@@ -34,6 +34,9 @@ type Config struct {
 	TypoRateLimitPerHour int
 	TypoRateLimitBurst   int
 	TypoRateLimitRPS     float64
+	TypoDedupOn          bool
+	TypoDedupSize        int
+	TypoDedupTTL         time.Duration
 	AllowedOrigins       []string
 	KeepQuery            bool
 	TrustProxy           bool
@@ -71,6 +74,9 @@ func Load() Config {
 		RateLimitBurst:       envIntOr("REPORT_RELAY_RATE_LIMIT_BURST", 40),
 		TypoRateLimitPerHour: typoRatePerHour(),
 		TypoRateLimitBurst:   typoRateBurst(),
+		TypoDedupOn:          envBoolOr("REPORT_RELAY_TYPO_DEDUP", true),
+		TypoDedupSize:        envIntOr("REPORT_RELAY_TYPO_DEDUP_SIZE", 10000),
+		TypoDedupTTL:         envDurationOr("REPORT_RELAY_TYPO_DEDUP_TTL", 10*time.Minute),
 		AllowedOrigins:       splitList(os.Getenv("REPORT_RELAY_ALLOWED_ORIGINS")),
 		KeepQuery:            envBoolOr("REPORT_RELAY_KEEP_QUERY", false),
 		TrustProxy:           envBoolOr("REPORT_RELAY_TRUST_PROXY", false),
@@ -112,6 +118,9 @@ func (c Config) Log(log *slog.Logger) {
 		"rate_limit_burst", c.RateLimitBurst,
 		"typo_rate_per_hour", c.TypoRateLimitPerHour,
 		"typo_rate_burst", c.TypoRateLimitBurst,
+		"typo_dedup", c.TypoDedupOn,
+		"typo_dedup_size", c.TypoDedupSize,
+		"typo_dedup_ttl", c.TypoDedupTTL,
 		"allowed_origins", c.AllowedOrigins,
 		"keep_query", c.KeepQuery,
 		"trust_proxy", c.TrustProxy,
