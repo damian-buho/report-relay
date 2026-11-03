@@ -92,9 +92,8 @@ var requiredBody = map[string][]string{
 
 func init() {
 	for reportType, required := range requiredBody {
-		keys := required
 		RegisterBodyHook(reportType, func(report *Report) error {
-			for _, key := range keys {
+			for _, key := range required {
 				if _, ok := report.Body[key]; !ok {
 					return fmt.Errorf("body is missing %q", key)
 				}
