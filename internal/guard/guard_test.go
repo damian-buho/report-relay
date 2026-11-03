@@ -116,20 +116,6 @@ func TestDecodeRejectsBadJSON(t *testing.T) {
 	}
 }
 
-func TestCountItemsEnforcesTheArrayCap(t *testing.T) {
-	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 3}
-	if _, err := CountItems([]byte(`[1,2,3,4,5]`), limits); !errors.Is(err, ErrArrayTooLong) {
-		t.Fatalf("err = %v, want ErrArrayTooLong", err)
-	}
-	count, err := CountItems([]byte(`[1,2,3]`), limits)
-	if err != nil {
-		t.Fatalf("CountItems: %v", err)
-	}
-	if count != 3 {
-		t.Errorf("count = %d, want 3", count)
-	}
-}
-
 func TestLimiterTripsAfterTheBurst(t *testing.T) {
 	limiter := NewLimiter(1, 3)
 	defer limiter.Close()

@@ -88,24 +88,6 @@ func TestCheckShapeHandlesAValueThatIsNotAnObject(t *testing.T) {
 	}
 }
 
-func TestCountItemsRefusesWhatIsNotAnArray(t *testing.T) {
-	limits := Limits{MaxBodyBytes: 1 << 20, MaxJSONDepth: 8, MaxArrayItems: 16, MaxBodyKeys: 16}
-	// An object is not an array, and an absent array counts as zero items.
-	if count, err := CountItems([]byte(`{"a":1}`), limits); err != nil || count != 0 {
-		t.Errorf("CountItems(object) = %d, %v, want 0 and no error", count, err)
-	}
-	for _, tc := range []struct{ name, body string }{
-		{"garbage", `[1,`},
-		{"not json", `nope`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := CountItems([]byte(tc.body), limits); err == nil {
-				t.Fatal("CountItems accepted a body that is not an array")
-			}
-		})
-	}
-}
-
 // TestRemoteHostKeepsAnAddressWithoutAPort pins the fallback: a peer with no
 // port hands over a bare address, and it is used as it arrived.
 func TestRemoteHostKeepsAnAddressWithoutAPort(t *testing.T) {

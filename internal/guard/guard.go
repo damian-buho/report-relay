@@ -419,27 +419,3 @@ func popFrame(stack []frame) []frame {
 	}
 	return stack
 }
-
-// CountItems returns the number of elements in a JSON array, refusing one that
-// is longer than the cap. An empty or absent array counts as zero.
-func CountItems(body []byte, limits Limits) (int, error) {
-	dec := json.NewDecoder(bytes.NewReader(body))
-	tok, err := dec.Token()
-	if err != nil {
-		return 0, fmt.Errorf("decode: %w", err)
-	}
-	if delim, ok := tok.(json.Delim); !ok || delim != '[' {
-		return 0, nil
-	}
-	count := 0
-	for dec.More() {
-		count++
-		if count > limits.MaxArrayItems {
-			return 0, ErrArrayTooLong
-		}
-		if err := dec.Decode(&json.RawMessage{}); err != nil {
-			return 0, fmt.Errorf("decode: %w", err)
-		}
-	}
-	return count, nil
-}
