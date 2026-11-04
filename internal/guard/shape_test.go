@@ -66,6 +66,38 @@ func TestDecodeCountsKeysAndRedactsAcrossNestedObjects(t *testing.T) {
 	}
 }
 
+// TestPopFrameClosesTheInnermostFrame pins the frame contract the shape walk
+// relies on: an empty stack is returned untouched rather than indexed past its
+// end, an object close leaves its parent expecting a key, and an array close
+// leaves the parent taking whatever token comes next.
+func TestPopFrameClosesTheInnermostFrame(t *testing.T) {
+	cases := []struct {
+		name  string
+		stack []frame
+		want  []frame
+	}{
+		{"nil stack", nil, nil},
+		{"empty stack", []frame{}, []frame{}},
+		{"only frame", []frame{{object: true, key: false}}, []frame{}},
+		{"object inside object", []frame{{object: true, key: false}, {object: true, key: false}}, []frame{{object: true, key: true}}},
+		{"array inside object", []frame{{object: true, key: true}, {object: false}}, []frame{{object: true, key: true}}},
+		{"array inside array", []frame{{object: false}, {object: false}}, []frame{{object: false}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := popFrame(tc.stack)
+			if len(got) != len(tc.want) {
+				t.Fatalf("popFrame(%v) = %v, want %v frames", tc.stack, got, len(tc.want))
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("frame %d = %+v, want %+v", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 // TestCheckShapeHandlesAValueThatIsNotAnObject pins the arm a top-level array
 // or a bare scalar takes: no key is counted, and the walk still ends cleanly.
 func TestCheckShapeHandlesAValueThatIsNotAnObject(t *testing.T) {
