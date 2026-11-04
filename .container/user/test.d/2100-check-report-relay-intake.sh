@@ -23,6 +23,12 @@ fail() {
 curl -sf "${ADMIN_URL}/healthz" > /dev/null || fail "healthz not answering on ${ADMIN_URL}"
 curl -sf "${ADMIN_URL}/readyz" > /dev/null || fail "readyz not answering on ${ADMIN_URL}"
 
+# healthcheck.d exports _e/_p into its checks, so a direct run of the script needs them exported too
+export -f _e _p
+if ! bash "${B19_HEALTH_PATH:-/healthcheck.d}/1100-check-report-relay-health.sh" 2>&1; then
+  fail "the image healthcheck script failed while the admin API is ready"
+fi
+
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${REPORT_RELAY_URL}/" \
   -H 'Content-Type: application/csp-report' --data "${CSP_BODY}")
 [ "${code}" = "204" ] || fail "legacy CSP report answered ${code}, expected 204"
