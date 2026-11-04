@@ -57,6 +57,7 @@ type Emitter struct {
 	exportFail metric.Int64Counter
 	queueSize  int
 	queued     atomic.Int64
+	fullDrops  atomic.Uint64
 	failures   atomic.Uint64
 }
 
@@ -64,6 +65,11 @@ type Emitter struct {
 // service stops calling itself ready. One failure is a blip; three is a dead
 // collector, and /readyz should say so.
 const exportFailThreshold = 3
+
+// dropWarnLimit is the queue-full drops one full episode reads at WARN before
+// the rest are demoted to debug, so a dead collector behind a raised intake
+// limit cannot turn one line per dropped report into a stdout flood.
+const dropWarnLimit = 5
 
 // New builds the log and metric pipelines from the standard OTEL_* environment
 // plus the operator's own REPORT_RELAY_* limits. Without an OTLP endpoint the
@@ -142,7 +148,7 @@ type countingExporter struct {
 // Export forwards the batch and records the outcome against the emitter.
 func (c *countingExporter) Export(ctx context.Context, batch []sdklog.Record) error {
 	err := c.inner.Export(ctx, batch)
-	c.em.queued.Add(-int64(len(batch)))
+	c.em.releaseSlots(len(batch))
 	if err != nil {
 		c.em.CountExportFailure(ctx, err)
 		return err
@@ -267,11 +273,23 @@ func (e *Emitter) Emit(ctx context.Context, r intake.Report) bool {
 	if !e.claim(1) {
 		reportType := intake.SanitizeType(r.Type)
 		e.countQueueFull(ctx, reportType)
-		slog.Warn("queue full, report dropped", "report_type", reportType, "queue_size", e.queueSize)
+		e.logQueueFullDrop(reportType)
 		return false
 	}
 	e.emit(ctx, r)
 	return true
+}
+
+// logQueueFullDrop warns on the first drops of a full episode and demotes the
+// rest to debug, so one line per dropped report stops at the metric, which is
+// unconditional and counts every drop whatever the log does.
+func (e *Emitter) logQueueFullDrop(reportType string) {
+	dropped := e.fullDrops.Add(1)
+	if dropped <= dropWarnLimit {
+		slog.Warn("queue full, report dropped", "report_type", reportType, "queue_size", e.queueSize)
+		return
+	}
+	slog.Debug("queue full, report dropped", "report_type", reportType, "queue_size", e.queueSize)
 }
 
 // EmitBatch queues a whole batch or none of it: the slots are claimed in one atomic step, so a 429 leaves nothing enqueued for the sender's retry to deliver twice; Emit stays the per-record gate for a caller outside a batch.
@@ -298,6 +316,17 @@ func (e *Emitter) claim(n int) bool {
 		if e.queued.CompareAndSwap(backlog, backlog+int64(n)) {
 			return true
 		}
+	}
+}
+
+// releaseSlots returns n claimed slots and, once the queue drains, closes the
+// full episode with one WARN naming every report that was dropped while full.
+func (e *Emitter) releaseSlots(n int) {
+	if e.queued.Add(-int64(n)) > 0 {
+		return
+	}
+	if dropped := e.fullDrops.Swap(0); dropped > 0 {
+		slog.Warn("queue drained, reports dropped while full", "dropped", dropped, "queue_size", e.queueSize)
 	}
 }
 

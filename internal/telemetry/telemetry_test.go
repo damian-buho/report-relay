@@ -10,12 +10,15 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -31,6 +34,17 @@ type stubExporter struct{}
 func (stubExporter) Export(context.Context, []sdklog.Record) error { return nil }
 func (stubExporter) Shutdown(context.Context) error                { return nil }
 func (stubExporter) ForceFlush(context.Context) error              { return nil }
+
+// gatedExporter holds every export until its gate closes, so a test controls
+// the moment the queue drains.
+type gatedExporter struct{ gate chan struct{} }
+
+func (g *gatedExporter) Export(context.Context, []sdklog.Record) error {
+	<-g.gate
+	return nil
+}
+func (g *gatedExporter) Shutdown(context.Context) error   { return nil }
+func (g *gatedExporter) ForceFlush(context.Context) error { return nil }
 
 func testConfig() config.Config {
 	return config.Config{
@@ -309,5 +323,84 @@ func TestAnExportOutlivingTheAttemptDeadlineDeliversTheBatch(t *testing.T) {
 	}
 	if !collector.received("deprecation") {
 		t.Errorf("attempts = %d, no accepted upload carried the report", collector.attempts)
+	}
+}
+
+// TestEmitCapsTheQueueFullLogNoise pins the log cap the full queue's flood
+// needs: only the first dropWarnLimit drops read WARN, the rest read DEBUG,
+// the drain closes the episode with one summary, and the metric counts every
+// drop meanwhile.
+func TestEmitCapsTheQueueFullLogNoise(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	const total = 200
+	cfg := testConfig()
+	cfg.QueueSize = 2
+	cfg.BatchTimeout = time.Hour
+	reader := sdkmetric.NewManualReader()
+	// The gate holds the exporter back, because the batch processor flushes a full queue of its own and would drain the episode mid-loop.
+	gate := make(chan struct{})
+	em, err := NewWithExporters(cfg, &gatedExporter{gate: gate}, reader)
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	for range total {
+		em.Emit(context.Background(), reportsOf("deprecation")[0])
+	}
+	log := buf.String()
+	if got := strings.Count(log, `level=WARN msg="queue full, report dropped`); got != dropWarnLimit {
+		t.Errorf("queue-full WARN lines after %d drops = %d, want %d", total-cfg.QueueSize, got, dropWarnLimit)
+	}
+	if got := em.fullDrops.Load(); got != uint64(total-cfg.QueueSize) {
+		t.Errorf("fullDrops = %d, want every drop of the episode counted", got)
+	}
+	if got := em.queued.Load(); got != int64(cfg.QueueSize) {
+		t.Errorf("queued = %d, want the %d accepted slots still held", got, cfg.QueueSize)
+	}
+	close(gate)
+	deadline := time.Now().Add(5 * time.Second)
+	for em.queued.Load() > 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := em.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if got := em.queued.Load(); got != 0 {
+		t.Errorf("queued = %d after the flush, want the queue drained", got)
+	}
+	log = buf.String()
+	if got := strings.Count(log, "queue drained, reports dropped while full"); got != 1 {
+		t.Errorf("recovery lines = %d (%q), want one", got, log)
+	}
+	if got := strings.Count(log, "level=DEBUG"); got != total-cfg.QueueSize-dropWarnLimit {
+		t.Errorf("demoted drops = %d, want %d", got, total-cfg.QueueSize-dropWarnLimit)
+	}
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	var queueFullDrops int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "report.relay.dropped" {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("metric %q is not a sum", m.Name)
+			}
+			for _, dp := range sum.DataPoints {
+				if reason, ok := dp.Attributes.Value("reason"); ok && reason.AsString() == ReasonQueueFull {
+					queueFullDrops += dp.Value
+				}
+			}
+		}
+	}
+	if queueFullDrops != int64(total-cfg.QueueSize) {
+		t.Errorf("report.relay.dropped{reason=queue-full} = %d, want every report counted", queueFullDrops)
 	}
 }
