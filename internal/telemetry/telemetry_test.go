@@ -46,6 +46,9 @@ func (g *gatedExporter) Export(context.Context, []sdklog.Record) error {
 func (g *gatedExporter) Shutdown(context.Context) error   { return nil }
 func (g *gatedExporter) ForceFlush(context.Context) error { return nil }
 
+// droppedMetric is the dropped counter's name, the read-back target of two tests.
+const droppedMetric = "report.relay.dropped"
+
 func testConfig() config.Config {
 	return config.Config{
 		ServiceName: "report-relay",
@@ -386,7 +389,7 @@ func TestEmitCapsTheQueueFullLogNoise(t *testing.T) {
 	var queueFullDrops int64
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name != "report.relay.dropped" {
+			if m.Name != droppedMetric {
 				continue
 			}
 			sum, ok := m.Data.(metricdata.Sum[int64])
@@ -403,4 +406,47 @@ func TestEmitCapsTheQueueFullLogNoise(t *testing.T) {
 	if queueFullDrops != int64(total-cfg.QueueSize) {
 		t.Errorf("report.relay.dropped{reason=queue-full} = %d, want every report counted", queueFullDrops)
 	}
+}
+
+// TestCountDroppedSanitizesTheTypeLabel pins the label-safety rule on the dropped counter's type label.
+func TestCountDroppedSanitizesTheTypeLabel(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	em, err := NewWithExporters(testConfig(), stubExporter{}, reader)
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	raw := "CSP.Violation-" + strings.Repeat("?", 80)
+	want := intake.SanitizeType(raw)
+	if want == raw {
+		t.Fatalf("SanitizeType kept %q, so the string is not hostile", raw)
+	}
+	em.CountDropped(context.Background(), ReasonTooLarge, raw)
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != droppedMetric {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("metric %q is not a sum", m.Name)
+			}
+			for _, dp := range sum.DataPoints {
+				got, ok := dp.Attributes.Value("report_type")
+				if !ok {
+					t.Fatal("the dropped data point carried no report_type label")
+				}
+				if got.AsString() != want {
+					t.Errorf("report_type = %q, want the sanitized %q", got.AsString(), want)
+				}
+				return
+			}
+			t.Fatal("the collected dropped metric had no data points")
+		}
+	}
+	t.Fatal("report.relay.dropped was not collected")
 }

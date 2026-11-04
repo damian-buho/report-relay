@@ -294,7 +294,7 @@ func TestCountersRecordMetrics(t *testing.T) {
 	wantCounters := map[string]int64{
 		"report.relay.received": 1,
 		"report.relay.accepted": 1,
-		"report.relay.dropped":  1,
+		droppedMetric:           1,
 	}
 	found := map[string]bool{}
 	for _, sm := range rm.ScopeMetrics {

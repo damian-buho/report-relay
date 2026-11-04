@@ -240,11 +240,11 @@ func (e *Emitter) CountAccepted(ctx context.Context, reportType, domain string) 
 	))
 }
 
-// CountDropped records a dropped report and the variable that caused the drop.
+// CountDropped records a dropped report, sanitized like the other two counters so a raw type never reaches the label.
 func (e *Emitter) CountDropped(ctx context.Context, reason, reportType string) {
 	e.dropped.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("reason", reason),
-		attribute.String("report_type", reportType),
+		attribute.String("report_type", intake.SanitizeType(reportType)),
 	))
 }
 
@@ -369,7 +369,7 @@ func (e *Emitter) emit(ctx context.Context, r intake.Report) {
 func (e *Emitter) countQueueFull(ctx context.Context, reportType string) {
 	e.dropped.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("reason", ReasonQueueFull),
-		attribute.String("report_type", reportType),
+		attribute.String("report_type", intake.SanitizeType(reportType)),
 	))
 }
 
