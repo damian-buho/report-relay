@@ -198,8 +198,8 @@ func TestReportingAPIBatchOfThreeBecomesThreeRecords(t *testing.T) {
 	if records[2].SeverityText() != "WARN" {
 		t.Errorf("network-error severity = %q, want WARN", records[2].SeverityText())
 	}
-	if records[1].SeverityText() != "INFO" {
-		t.Errorf("deprecation severity = %q, want INFO", records[1].SeverityText())
+	if records[1].SeverityText() != "WARN" {
+		t.Errorf("deprecation severity = %q, want WARN", records[1].SeverityText())
 	}
 }
 

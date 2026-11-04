@@ -89,8 +89,8 @@ func TestReportingAPIBatchOfThreeBecomesThreeReports(t *testing.T) {
 	if reports[0].Age != 5 || reports[1].Age != 60 || reports[2].Age != 120 {
 		t.Errorf("ages = %d/%d/%d, want 5/60/120", reports[0].Age, reports[1].Age, reports[2].Age)
 	}
-	if reports[1].Severity() != sevInfo {
-		t.Errorf("deprecation severity = %q, want INFO", reports[1].Severity())
+	if reports[1].Severity() != sevWarn {
+		t.Errorf("deprecation severity = %q, want WARN", reports[1].Severity())
 	}
 	if reports[2].Severity() != sevWarn {
 		t.Errorf("network-error severity = %q, want WARN", reports[2].Severity())
@@ -136,6 +136,7 @@ func TestUnknownReportTypeSurvives(t *testing.T) {
 	}
 }
 
+// TestNormalizeTypeFoldsSpellings pins the alias folds the wire spellings take.
 func TestNormalizeTypeFoldsSpellings(t *testing.T) {
 	cases := map[string]string{
 		typeCSPViolation:          typeCSPViolation,
@@ -148,6 +149,43 @@ func TestNormalizeTypeFoldsSpellings(t *testing.T) {
 	for input, want := range cases {
 		if got := normalizeType(input); got != want {
 			t.Errorf("normalizeType(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+// TestEveryRequiredBodyKeyIsReachable turns a stranded requiredBody entry into a test failure.
+func TestEveryRequiredBodyKeyIsReachable(t *testing.T) {
+	for reportType := range requiredBody {
+		if got := normalizeType(reportType); got != reportType {
+			t.Errorf("requiredBody key %q folds to %q, so its hook can never fire", reportType, got)
+		}
+	}
+}
+
+// TestEveryRegisteredTypeHasAPinnedSeverity pins the severity of every hook-registered type.
+func TestEveryRegisteredTypeHasAPinnedSeverity(t *testing.T) {
+	want := map[string]string{
+		typeCSPViolation:         sevWarn,
+		typeCOEP:                 sevWarn,
+		typeCOOP:                 sevWarn,
+		typeNetworkError:         sevWarn,
+		typeDeprecation:          sevWarn,
+		typeIntervention:         sevWarn,
+		typeIntegrityViolation:   sevWarn,
+		typePermissions:          sevWarn,
+		typePotentialPermissions: sevWarn,
+		typeFeaturePolicy:        sevWarn,
+		typeDocumentPolicy:       sevWarn,
+		typeTypo:                 sevInfo,
+	}
+	for reportType, expected := range want {
+		if got := severity(reportType); got != expected {
+			t.Errorf("severity(%q) = %q, want %q", reportType, got, expected)
+		}
+	}
+	for reportType := range requiredBody {
+		if _, ok := want[reportType]; !ok {
+			t.Errorf("registered type %q has no pinned severity", reportType)
 		}
 	}
 }
@@ -629,8 +667,8 @@ func TestDeprecationRealBodyIsAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	if reports[0].Severity() != sevInfo {
-		t.Errorf("severity = %q, want INFO", reports[0].Severity())
+	if reports[0].Severity() != sevWarn {
+		t.Errorf("severity = %q, want WARN like the other violation types", reports[0].Severity())
 	}
 	if reports[0].Body[fieldSourceFile] != "https://beta.example.com/a.js" {
 		t.Errorf("sourceFile = %v, want the query dropped", reports[0].Body[fieldSourceFile])
@@ -644,8 +682,8 @@ func TestInterventionReportIsAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	if reports[0].Severity() != sevInfo {
-		t.Errorf("severity = %q, want INFO", reports[0].Severity())
+	if reports[0].Severity() != sevWarn {
+		t.Errorf("severity = %q, want WARN like the other violation types", reports[0].Severity())
 	}
 }
 

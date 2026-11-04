@@ -36,10 +36,11 @@ type Report struct {
 // receiving a report type this build does not know is not an error.
 func severity(reportType string) string {
 	switch reportType {
-	case typeCSPViolation, typeCOEP, typeCOEPViolation, typeNetworkError,
+	case typeCSPViolation, typeCOEP, typeNetworkError,
 		typeCOOP, typeCrash, typeIntegrityViolation, typeDocumentPolicy,
-		typePermissions, typeFeaturePolicy, typeExpectCT, typeHPKP,
-		typeIodef, "attribution-reporting":
+		typePermissions, typePotentialPermissions, typeFeaturePolicy, typeExpectCT,
+		typeHPKP, typeIodef, "attribution-reporting",
+		typeDeprecation, typeIntervention:
 		return "WARN"
 	default:
 		return "INFO"

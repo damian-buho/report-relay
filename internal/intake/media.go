@@ -78,7 +78,6 @@ func RegisterBodyHook(reportType string, hook bodyHook) {
 var requiredBody = map[string][]string{
 	typeCSPViolation:         {fieldDocumentURL, fieldEffectiveDirective, fieldBlockedURL},
 	typeCOEP:                 {fieldType, fieldDisposition},
-	typeCOEPViolation:        {fieldType, fieldDisposition},
 	typeCOOP:                 {fieldDisposition, "effectivePolicy", fieldType},
 	typeNetworkError:         {"phase", fieldType},
 	typeDeprecation:          {"id", "message"},
