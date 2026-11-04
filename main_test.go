@@ -7,12 +7,19 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"flag"
 	"io"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -121,6 +128,82 @@ func TestRunIntakePortInUse(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(testBin, flag.ContinueOnError)
 	if got := run(); got != 1 {
 		t.Errorf("run() = %d, want 1", got)
+	}
+}
+
+// writeCACertificate puts a self-signed CA on disk, which is the only way an
+// operator names a TLS configuration to the OTLP exporters.
+func writeCACertificate(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("rsa.GenerateKey: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "report-relay-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IsCA:         true,
+		KeyUsage:     x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("x509.CreateCertificate: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatalf("os.WriteFile: %v", err)
+	}
+	return path
+}
+
+// freePort claims an ephemeral port and releases it, so a test that never binds
+// still names an address nothing else on the host is serving on.
+func freePort(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close the claimed port: %v", err)
+	}
+	return strconv.Itoa(port)
+}
+
+// TestRunRefusesToStartWhenTheExporterCannotBeBuilt pins the exit path a
+// collector configuration the exporter client refuses takes: the pipeline
+// constructor names the contradiction before any listener is bound, so the
+// process exits 1 rather than serving a relay that can export nowhere.
+func TestRunRefusesToStartWhenTheExporterCannotBeBuilt(t *testing.T) {
+	certPath := writeCACertificate(t)
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector.invalid:4318")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://collector.invalid:4318")
+	t.Setenv("OTEL_EXPORTER_OTLP_CERTIFICATE", certPath)
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_CERTIFICATE", certPath)
+	t.Setenv("REPORT_RELAY_HTTP_PORT", freePort(t))
+	t.Setenv("REPORT_RELAY_ADMIN_PORT", freePort(t))
+
+	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("the fixture configuration is invalid: %v", err)
+	}
+	if _, err := telemetry.New(context.Background(), cfg); err == nil {
+		t.Fatal("the exporter built for an http endpoint carrying a CA certificate")
+	}
+
+	oldArgs := os.Args
+	oldFlags := flag.CommandLine
+	defer func() {
+		os.Args = oldArgs
+		flag.CommandLine = oldFlags
+	}()
+	os.Args = []string{testBin}
+	flag.CommandLine = flag.NewFlagSet(testBin, flag.ContinueOnError)
+	if got := run(); got != 1 {
+		t.Errorf("run() = %d, want 1 when the exporter cannot be built", got)
 	}
 }
 
