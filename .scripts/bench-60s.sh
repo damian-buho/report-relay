@@ -50,7 +50,9 @@ log "server up on 127.0.0.1:${http_port} (admin :${admin_port})"
 python3 - "${duration}" "${workers}" "${http_port}" <<'EOF'
 import http.client, json, sys, threading, time
 duration, workers, port = float(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
-body = b'[{"type":"deprecation","age":1,"url":"https://beta.example.com/","body":{"id":"websql","message":"WebSQL is deprecated"}}]'
+batch = [{"type": "deprecation", "age": i + 1, "url": "https://beta.example.com/",
+  "body": {"id": "websql", "message": f"WebSQL is deprecated ({i})"}} for i in range(5)]
+body = json.dumps(batch).encode()
 deadline = time.monotonic() + duration
 counts, lats, lock = {"204": 0, "err": 0, "other": {}}, [], threading.Lock()
 def work():
@@ -85,6 +87,7 @@ n = len(lats)
 pct = lambda q: lats[min(n - 1, int(q * n))] if n else 0.0
 print(json.dumps({"requests": n + counts["err"], "accepted_204": counts["204"],
   "non_204": counts["other"].get("non204", 0), "conn_errors": counts["err"],
+  "reports_per_batch": len(batch), "reports_per_s": round((n + counts["err"]) * len(batch) / duration, 1),
   "req_per_s": round((n + counts["err"]) / duration, 1),
   "lat_ms_p50": round(pct(0.50), 3), "lat_ms_p99": round(pct(0.99), 3)}))
 EOF

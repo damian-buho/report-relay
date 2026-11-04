@@ -203,6 +203,50 @@ func TestReportingAPIBatchOfThreeBecomesThreeRecords(t *testing.T) {
 	}
 }
 
+// testReportingBatch builds a Reporting API batch of n reports with distinct ages, so a decode emitting one record n times fails the order check.
+func testReportingBatch(n int) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i := range n {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"type":"deprecation","age":` + strconv.Itoa(i+1) +
+			`,"url":"https://beta.example.com/","body":{"id":"websql","message":"WebSQL is deprecated"}}`)
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+// TestReportingAPIBatchOfTwentyBecomesTwentyRecords pins the batch a real
+// browser sends, far past the three-report shape the earlier tests pin: every
+// report in the batch becomes its own record, in sender order.
+func TestReportingAPIBatchOfTwentyBecomesTwentyRecords(t *testing.T) {
+	cfg := testConfig()
+	cfg.QueueSize = 20 // one batch claims every slot it needs in a single step
+	srv, sink, sinkEmitter := testServer(t, cfg)
+	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, testReportingBatch(20)); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	records := sink.Records(t, sinkEmitter)
+	if len(records) != 20 {
+		t.Fatalf("records = %d, want 20", len(records))
+	}
+	for i, record := range records {
+		var age int64
+		record.WalkAttributes(func(attr attribute.KeyValue) bool {
+			if string(attr.Key) == "report.age_ms" {
+				age = attr.Value.AsInt64()
+				return false
+			}
+			return true
+		})
+		if age != int64(i+1) {
+			t.Errorf("record %d age_ms = %d, want %d, so the batch arrives in sender order and intact", i, age, i+1)
+		}
+	}
+}
+
 func TestUnknownReportTypeReachesTheRecord(t *testing.T) {
 	srv, sink, sinkEmitter := testServer(t, testConfig())
 	body := `[{"type":"certificate-transparency","age":7,"url":"https://beta.example.com/",` +

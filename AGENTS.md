@@ -86,12 +86,16 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 
 - The pipeline compose runs the REAL `o9s/alloy` and `o9s/loki` beside the relay
   (images declared in this projectfile, not in a reusable fragment), and
-  `2100-check-report-relay-intake.sh` posts a report with a unique marker, polls
-  Loki, then re-queries it BY LABEL. A stub collector would not catch a label the
-  fleet’s own pipeline refuses to promote.
+  `2100-check-report-relay-intake.sh` posts single reports AND a 20-report batch,
+  each line with a unique marker, polls Loki, then re-queries them BY LABEL. A
+  stub collector would not catch a label the fleet’s own pipeline refuses to
+  promote, and a batch of one never catches a decode that drops or repeats the
+  tail.
 - The Loki query window is epoch NANOSECONDS; a relative `0s` is rejected.
-- Perf baseline: `.scripts/bench-60s.sh` (real binary, loopback, stdout
-  exporter, limits raised) does ~18k rps for 60s at 100% 204; Go-level
-  `BenchmarkIntakeSerial/Parallel` in `internal/server/bench_test.go` does
-  ~46k/~93k rps. Default rate limits (20 rps, burst 40) cap one client far
-  below either number.
+- Perf baseline, both measuring the 5-report batch a browser actually sends:
+  `.scripts/bench-60s.sh` (real binary, loopback, stdout exporter, limits raised)
+  does ~15k requests/s (~77k reports/s) for 60s at 100% 204 with every report
+  reaching the exporter; Go-level `BenchmarkIntakeSerial/Parallel` in
+  `internal/server/bench_test.go` does ~18k/~38k requests/s (~91k/~193k
+  reports/s). Default rate limits (20 rps, burst 40) cap one client far below
+  either number.

@@ -143,3 +143,30 @@ grep -q "${TYPO_MARKER}" <<<"${TYPO_LABELLED}" \
   || fail "the typo line landed but is not selectable by {event_name=\"typo\", event_domain=\"content\"}"
 
 echo "Report Relay typo record reached Loki labelled as content/typo"
+
+# ── End to end, a 20-report batch: one marker per report, so a dropped tail or a repeated report fails the count below ──
+
+BATCH_REPORTS=""
+for i in $(seq -w 1 20); do
+  printf -v batch_report '{"type":"deprecation","age":%s,"url":"https://beta.example.com/","body":{"id":"websql","message":"%s"}}' "$((10#${i}))" "${MARKER}-b${i}"
+  BATCH_REPORTS+="${batch_report},"
+done
+BATCH_BODY="[${BATCH_REPORTS%,}]"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${REPORT_RELAY_URL}/" \
+  -H 'Content-Type: application/reports+json' --data "${BATCH_BODY}")
+[ "${code}" = "204" ] || fail "the 20-report batch answered ${code}, expected 204"
+
+# One awaited marker proves the exporter flushed; the query below then proves every marker landed.
+await_marker "${MARKER}-b01" || fail "the 20-report batch never reached Loki under its first marker after 30 attempts"
+
+BATCH_LABELLED=$(curl -s -m 10 -H "X-Scope-OrgID: ${TENANT}" \
+  -G "${LOKI_URL}/loki/api/v1/query_range" \
+  --data-urlencode "query={service_name=\"report-relay\", event_name=\"deprecation\"} |= \"${MARKER}-b\"" \
+  --data-urlencode "start=${START}" || true)
+for i in $(seq -w 1 20); do
+  grep -q "${MARKER}-b${i}" <<<"${BATCH_LABELLED}" \
+    || fail "report ${i} of the 20-report batch is missing from Loki under marker ${MARKER}-b${i}"
+done
+
+echo "Report Relay 20-report batch reached Loki with every marker and the deprecation label"

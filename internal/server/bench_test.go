@@ -52,12 +52,13 @@ func benchServer(b *testing.B) *Server {
 	return New(cfg, log, em, func() bool { return true })
 }
 
+// benchPost submits the five-report batch, so the benchmark costs the multi-report decode a real browser bills, not the single-report floor.
 func benchPost(srv *Server) *httptest.ResponseRecorder {
 	return benchPostIP(srv, "127.0.0.1:4318")
 }
 
 func benchPostIP(srv *Server, remoteAddr string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(oneReport))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(fiveReports))
 	req.Header.Set("Content-Type", intake.MediaReportingAPI)
 	req.RemoteAddr = remoteAddr // fixed per benchmark, so the limiter path under test is explicit
 	rec := httptest.NewRecorder()
