@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -122,10 +124,8 @@ func TestRunIntakePortInUse(t *testing.T) {
 	}
 }
 
-// drainSetup builds the fixtures drain needs: two HTTP servers with a blocking
-// handler, a server, an emitter and a logger. It returns both server
-// addresses so a test can hold a connection open on each.
-func drainSetup(t *testing.T) (intakeSrv, adminSrv *http.Server, srv *server.Server, emitter *telemetry.Emitter, log *slog.Logger, intakeAddr, adminAddr string) {
+// drainSetup builds two blocking servers, an emitter and a logger; each request signals started and blocks until cleanup releases it.
+func drainSetup(t *testing.T, logOut io.Writer) (intakeSrv, adminSrv *http.Server, srv *server.Server, emitter *telemetry.Emitter, log *slog.Logger, started chan struct{}, intakeAddr, adminAddr string) {
 	t.Helper()
 	cfg := config.Config{
 		ServiceName: "test",
@@ -134,14 +134,15 @@ func drainSetup(t *testing.T) (intakeSrv, adminSrv *http.Server, srv *server.Ser
 		HTTPPort:    "0",
 		AdminPort:   "0",
 	}
-	log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	log = slog.New(slog.NewTextHandler(logOut, nil))
 	emitter, err := telemetry.NewWithExporters(cfg, stubLogExporter{}, sdkmetric.NewManualReader())
 	if err != nil {
 		t.Fatalf("NewWithExporters: %v", err)
 	}
 	srv = server.New(cfg, log, emitter, func() bool { return true })
 	release := make(chan struct{})
-	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { <-release })
+	started = make(chan struct{}, 2)
+	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { started <- struct{}{}; <-release })
 	intakeLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen: %v", err)
@@ -160,13 +161,13 @@ func drainSetup(t *testing.T) (intakeSrv, adminSrv *http.Server, srv *server.Ser
 		_ = adminSrv.Close()
 		_ = emitter.Shutdown(context.Background())
 	})
-	return intakeSrv, adminSrv, srv, emitter, log, intakeLn.Addr().String(), adminLn.Addr().String()
+	return intakeSrv, adminSrv, srv, emitter, log, started, intakeLn.Addr().String(), adminLn.Addr().String()
 }
 
-// TestDrainCancelled holds one connection per server open and cancels the
-// context, so Shutdown returns context.Canceled and drain reports failure.
-func TestDrainCancelled(t *testing.T) {
-	intakeSrv, adminSrv, srv, emitter, log, intakeAddr, adminAddr := drainSetup(t)
+// TestDrainTimeout holds one connection per server open, so neither listener
+// can drain and drain reports failure for both.
+func TestDrainTimeout(t *testing.T) {
+	intakeSrv, adminSrv, srv, emitter, log, _, intakeAddr, adminAddr := drainSetup(t, io.Discard)
 	for _, target := range []string{intakeAddr, adminAddr} {
 		go func(t string) {
 			resp, err := http.Get("http://" + t + "/")
@@ -177,9 +178,7 @@ func TestDrainCancelled(t *testing.T) {
 		}(target)
 	}
 	time.Sleep(200 * time.Millisecond)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if code := drain(ctx, 0, intakeSrv, adminSrv, srv, emitter, log, time.Second); code != 1 {
+	if code := drain(0, intakeSrv, adminSrv, srv, emitter, log, 300*time.Millisecond, time.Second); code != 1 {
 		t.Errorf("drain = %d, want 1", code)
 	}
 }
@@ -187,11 +186,42 @@ func TestDrainCancelled(t *testing.T) {
 // TestDrainEmitterTimeout passes a zero emitter timeout, so the emitter
 // shutdown fails and drain reports failure.
 func TestDrainEmitterTimeout(t *testing.T) {
-	intakeSrv, adminSrv, srv, emitter, log, _, _ := drainSetup(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if code := drain(ctx, 0, intakeSrv, adminSrv, srv, emitter, log, 0); code != 1 {
+	intakeSrv, adminSrv, srv, emitter, log, _, _, _ := drainSetup(t, io.Discard)
+	if code := drain(0, intakeSrv, adminSrv, srv, emitter, log, time.Second, 0); code != 1 {
 		t.Errorf("drain = %d, want 1", code)
+	}
+}
+
+// TestDrainSlowIntakeKeepsAdminClean holds an intake request open until the
+// intake drain times out; the admin listener must still shut down cleanly
+// within its own deadline, and neither an intake failure nor a spurious admin
+// failure may hide behind the other.
+func TestDrainSlowIntakeKeepsAdminClean(t *testing.T) {
+	var buf bytes.Buffer
+	intakeSrv, adminSrv, srv, emitter, log, started, intakeAddr, _ := drainSetup(t, &buf)
+	go func() {
+		resp, err := http.Get("http://" + intakeAddr + "/")
+		if err == nil {
+			defer func() { _ = resp.Body.Close() }()
+		}
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the intake request never reached the handler")
+	}
+	errs := make(chan int, 1)
+	go func() { errs <- drain(0, intakeSrv, adminSrv, srv, emitter, log, 300*time.Millisecond, 2*time.Second) }()
+	select {
+	case code := <-errs:
+		if code != 1 {
+			t.Errorf("drain = %d, want 1", code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("drain did not return")
+	}
+	if out := buf.String(); strings.Contains(out, "admin shutdown incomplete") {
+		t.Errorf("the admin listener reported failure while the intake drained slowly: %s", out)
 	}
 }
 

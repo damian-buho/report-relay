@@ -112,30 +112,24 @@ func run() int {
 		}
 	}
 
-	drainCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-	defer cancel()
-	exitCode = drain(drainCtx, exitCode, intakeSrv, adminSrv, srv, emitter, log, cfg.ShutdownTimeout)
+	exitCode = drain(exitCode, intakeSrv, adminSrv, srv, emitter, log, cfg.ShutdownTimeout, cfg.ShutdownTimeout)
 	log.Info("stopped", "exit_code", exitCode)
 	return exitCode
 }
 
-// drain shuts down the HTTP servers and the telemetry emitter within the
-// deadlines the context and the timeout carry. It returns 1 if any step failed.
-func drain(ctx context.Context, exitCode int, intakeSrv, adminSrv *http.Server, srv *server.Server, emitter *telemetry.Emitter, log *slog.Logger, emitTimeout time.Duration) int {
-	// The drain deadline covers both listeners, so a slow connection delays
-	// shutdown by a bounded amount and no more.
-	if err := intakeSrv.Shutdown(ctx); err != nil {
-		log.Error("intake shutdown incomplete", "error", err)
-		exitCode = 1
-	}
-	if err := adminSrv.Shutdown(ctx); err != nil {
-		log.Error("admin shutdown incomplete", "error", err)
-		exitCode = 1
+// drain shuts each listener down within its own timeout, then the emitter, and returns 1 if any step failed.
+func drain(exitCode int, intakeSrv, adminSrv *http.Server, srv *server.Server, emitter *telemetry.Emitter, log *slog.Logger, drainTimeout, emitTimeout time.Duration) int {
+	for _, l := range []struct {
+		name string
+		http *http.Server
+	}{{"intake", intakeSrv}, {"admin", adminSrv}} {
+		if err := drainListener(l.http, l.name, drainTimeout, log); err != nil {
+			exitCode = 1
+		}
 	}
 	// The limiter sweeps on its own timer, so stop it once the listener it served is gone.
 	srv.Close()
-	// The emitter drains on its own deadline: a slow listener drain must not
-	// starve the export queue of its own bounded wait.
+	// The emitter drains on its own deadline: a slow listener drain must not starve the export queue of its own bounded wait.
 	emitCtx, emitCancel := context.WithTimeout(context.Background(), emitTimeout)
 	defer emitCancel()
 	if err := emitter.Shutdown(emitCtx); err != nil {
@@ -143,6 +137,21 @@ func drain(ctx context.Context, exitCode int, intakeSrv, adminSrv *http.Server, 
 		exitCode = 1
 	}
 	return exitCode
+}
+
+// drainListener gives one listener its own drain deadline and force-closes it when the drain gives up.
+func drainListener(srv *http.Server, name string, timeout time.Duration, log *slog.Logger) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := srv.Shutdown(ctx)
+	if err == nil {
+		return nil
+	}
+	log.Error(name+" shutdown incomplete", "error", err)
+	if closeErr := srv.Close(); closeErr != nil {
+		err = errors.Join(err, closeErr)
+	}
+	return err
 }
 
 func serve(srv *http.Server, name string, errs chan<- error) {
