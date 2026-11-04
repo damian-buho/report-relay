@@ -7,12 +7,20 @@ package telemetry
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -327,6 +335,107 @@ func TestAnExportOutlivingTheAttemptDeadlineDeliversTheBatch(t *testing.T) {
 	if !collector.received("deprecation") {
 		t.Errorf("attempts = %d, no accepted upload carried the report", collector.attempts)
 	}
+}
+
+// TestReleaseSlotsSummarizesOnlyWhenTheQueueEmpties pins the early return of
+// releaseSlots: a release that leaves a backlog behind closes nothing, and the
+// episode summary waits for the release that actually drains the queue.
+func TestReleaseSlotsSummarizesOnlyWhenTheQueueEmpties(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	cfg := testConfig()
+	cfg.BatchTimeout = time.Hour
+	gate := make(chan struct{})
+	defer close(gate)
+	em, err := NewWithExporters(cfg, &gatedExporter{gate: gate}, sdkmetric.NewManualReader())
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	em.queued.Add(2)
+	em.fullDrops.Store(3)
+
+	em.releaseSlots(1)
+	if got := em.queued.Load(); got != 1 {
+		t.Errorf("queued = %d after one of two releases, want the backlog still held", got)
+	}
+	if out := buf.String(); strings.Contains(out, "queue drained") {
+		t.Errorf("a partial release closed the episode early: %s", out)
+	}
+
+	em.releaseSlots(1)
+	if got := em.queued.Load(); got != 0 {
+		t.Errorf("queued = %d after both releases, want the queue drained", got)
+	}
+	out := buf.String()
+	if got := strings.Count(out, "queue drained, reports dropped while full"); got != 1 {
+		t.Errorf("drain summaries = %d, want exactly one: %s", got, out)
+	}
+	if !strings.Contains(out, "dropped=3") {
+		t.Errorf("the drain summary named no drop count: %s", out)
+	}
+}
+
+// TestNewRefusesAnInsecureEndpointCarryingTLS pins the exporter constructors'
+// own refusal: an http endpoint beside a CA certificate is a configuration the
+// client cannot honour, so neither pipeline builds and New names the one that
+// refused. Each subtarget names a different exporter, because the first failure
+// is the only one a caller ever sees.
+func TestNewRefusesAnInsecureEndpointCarryingTLS(t *testing.T) {
+	certPath := writeCACertificate(t)
+	const insecureEndpoint = "http://collector.invalid:4318"
+	clearEnv := func(t *testing.T) {
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+		t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "")
+		t.Setenv("OTEL_EXPORTER_OTLP_CERTIFICATE", "")
+		t.Setenv("OTEL_EXPORTER_OTLP_LOGS_CERTIFICATE", "")
+		t.Setenv("OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE", "")
+	}
+	for _, tc := range []struct{ name, certKey string }{
+		{"log exporter", "OTEL_EXPORTER_OTLP_LOGS_CERTIFICATE"},
+		{"metric exporter", "OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", insecureEndpoint)
+			t.Setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", insecureEndpoint)
+			t.Setenv(tc.certKey, certPath)
+			if _, err := New(context.Background(), testConfig()); err == nil {
+				t.Fatalf("%s built for an insecure endpoint carrying a TLS configuration", tc.name)
+			}
+		})
+	}
+}
+
+// writeCACertificate puts a self-signed CA on disk, which is the only way an
+// operator names a TLS configuration to the OTLP exporters.
+func writeCACertificate(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("rsa.GenerateKey: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "report-relay-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IsCA:         true,
+		KeyUsage:     x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("x509.CreateCertificate: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatalf("os.WriteFile: %v", err)
+	}
+	return path
 }
 
 // TestEmitCapsTheQueueFullLogNoise pins the log cap the full queue's flood
