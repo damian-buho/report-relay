@@ -17,6 +17,7 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - Arch: amd64, arm64
 - Binary: `dist/report-relay-linux-{amd64,arm64,riscv64}`, built by `.scripts/build-binaries.sh`, released by m6e’s `gh-release.sh` and the `forgejo-release` action from the signed tag message, and torrented as one bundle
 - **No upstream version pin** — the source is local, versioned by the projectfile
+- The intake rate limiter tracks at most 10 000 client addresses; an insert past that bound evicts the least-recently-seen client, so a flood of distinct addresses trades its own stale buckets and a persistent offender keeps its spent budget
 - Reports are an OPEN list: a type this build has never seen still arrives, because
   the Reporting API envelope is decoded without typing the body. Per-type validation
   is a hook in `internal/intake/media.go` (`RegisterBodyHook`), never a closed switch

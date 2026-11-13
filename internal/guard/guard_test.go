@@ -319,7 +319,8 @@ func TestEvictKeepsABucketExactlyAtItsTTL(t *testing.T) {
 	limiter := NewLimiter(1, 1)
 	defer limiter.Close()
 	seen := time.Now()
-	limiter.buckets["198.51.100.1"] = &client{lim: rate.NewLimiter(1, 1), seenAt: seen}
+	limiter.Allow("198.51.100.1")
+	limiter.buckets["198.51.100.1"].seenAt = seen
 	limiter.evict(seen.Add(limiter.ttl))
 	if got := limiter.Clients(); got != 1 {
 		t.Errorf("clients = %d, want the bucket kept at exactly its ttl", got)
@@ -410,6 +411,72 @@ func TestLimiterEvictionKeepsAnActiveClient(t *testing.T) {
 		if limiter.Allow("victim") {
 			t.Fatalf("flood round %d: the active victim lost its bucket and was given fresh tokens", i)
 		}
+	}
+}
+
+// TestEvictionDropsTheLeastRecentlySeenClient pins the victim by name: when
+// the table is full, the client seen longest ago is the one that goes.
+func TestEvictionDropsTheLeastRecentlySeenClient(t *testing.T) {
+	limiter := NewLimiter(1000, 1000)
+	defer limiter.Close()
+	limiter.max = 3
+	for _, ip := range []string{"203.0.113.10", "203.0.113.11", "203.0.113.12"} {
+		limiter.Allow(ip)
+	}
+	limiter.Allow("203.0.113.13")
+	if _, ok := limiter.buckets["203.0.113.10"]; ok {
+		t.Error("the least-recently-seen client was not evicted")
+	}
+	if _, ok := limiter.buckets["203.0.113.13"]; !ok {
+		t.Error("the client that filled the table was evicted")
+	}
+	if got := limiter.Clients(); got != 3 {
+		t.Errorf("clients = %d, want the table held at 3", got)
+	}
+}
+
+// TestEvictionKeepsTheClientSeenMostRecently pins the protection: a client
+// seen again becomes the most recent one, so it is not the one that goes.
+func TestEvictionKeepsTheClientSeenMostRecently(t *testing.T) {
+	limiter := NewLimiter(1000, 1000)
+	defer limiter.Close()
+	limiter.max = 2
+	limiter.Allow("203.0.113.20")
+	limiter.Allow("203.0.113.21")
+	limiter.Allow("203.0.113.20")
+	limiter.Allow("203.0.113.22")
+	if _, ok := limiter.buckets["203.0.113.21"]; ok {
+		t.Error("the least-recently-seen client was not evicted")
+	}
+	if _, ok := limiter.buckets["203.0.113.20"]; !ok {
+		t.Error("the client seen again was evicted")
+	}
+}
+
+// TestEvictionOnAnEmptyTableDropsNothing pins that the eviction of an empty
+// table touches no client.
+func TestEvictionOnAnEmptyTableDropsNothing(t *testing.T) {
+	limiter := NewLimiter(1000, 1000)
+	defer limiter.Close()
+	limiter.evictOne()
+	if got := limiter.Clients(); got != 0 {
+		t.Errorf("clients = %d, want none", got)
+	}
+}
+
+// TestSweepKeepsTheOrderAndTheTableInSync pins that a reclaimed bucket
+// leaves the order too, so an eviction cannot pop a client the table no
+// longer holds.
+func TestSweepKeepsTheOrderAndTheTableInSync(t *testing.T) {
+	limiter := newLimiter(1000, 2, time.Millisecond, time.Millisecond)
+	defer limiter.Close()
+	limiter.Allow("203.0.113.30")
+	limiter.evict(time.Now().Add(time.Hour))
+	if got := limiter.order.Len(); got != 0 {
+		t.Errorf("order holds %d entries, want none", got)
+	}
+	if got := limiter.Clients(); got != 0 {
+		t.Errorf("clients = %d, want none", got)
 	}
 }
 

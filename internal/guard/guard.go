@@ -10,6 +10,7 @@ package guard
 import (
 	"bytes"
 	"compress/gzip"
+	"container/list"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +50,7 @@ type Limits struct {
 type Limiter struct {
 	mu      sync.Mutex
 	buckets map[string]*client
+	order   *list.List
 	rate    rate.Limit
 	burst   int
 	ttl     time.Duration
@@ -58,20 +60,15 @@ type Limiter struct {
 	once    sync.Once
 }
 
-// defaultMaxClients bounds the bucket table. Past it an insert evicts the
-// least-recently-seen of a small sample, so a scanner trades its own stale
-// buckets for another's and a persistent offender keeps its spent budget.
+// defaultMaxClients bounds the bucket table; past it an insert evicts the least-recently-seen client.
 const defaultMaxClients = 10000
-
-// evictSample bounds one eviction scan. Eight entries approximate oldest-first
-// closely enough to protect an active client, and cheaply enough that a flood
-// of distinct addresses cannot turn the scan itself into the bottleneck.
-const evictSample = 8
 
 // sweepFloor is the shortest gap between idle sweeps: the TTL shrinks with the refill time, so a high-rate low-burst config computes milliseconds, and sweeping that fast would make the scan the bottleneck it was moved off the request path to escape.
 const sweepFloor = time.Second
 
 type client struct {
+	ip     string
+	el     *list.Element
 	lim    *rate.Limiter
 	seenAt time.Time
 }
@@ -92,6 +89,7 @@ func NewLimiter(rps float64, burst int) *Limiter {
 func newLimiter(rps float64, burst int, ttl, every time.Duration) *Limiter {
 	l := &Limiter{
 		buckets: make(map[string]*client),
+		order:   list.New(),
 		rate:    rate.Limit(rps),
 		burst:   burst,
 		ttl:     ttl,
@@ -118,10 +116,12 @@ func (l *Limiter) Allow(ip string) bool {
 		if len(l.buckets) >= l.max {
 			l.evictOne()
 		}
-		c = &client{lim: rate.NewLimiter(l.rate, l.burst)}
+		c = &client{ip: ip, lim: rate.NewLimiter(l.rate, l.burst)}
+		c.el = l.order.PushFront(c)
 		l.buckets[ip] = c
 	}
 	c.seenAt = now
+	l.order.MoveToFront(c.el)
 	return c.lim.Allow()
 }
 
@@ -154,22 +154,15 @@ func (l *Limiter) sweep() {
 	}
 }
 
-// evictOne drops the least-recently-seen entry of a small sample to make
-// room. Sampling keeps the scan O(1) under the lock during a flood, while a
-// client seen recently is almost never the oldest of the sample.
+// evictOne drops the least-recently-seen client to make room.
 func (l *Limiter) evictOne() {
-	victim := ""
-	var oldest time.Time
-	n := 0
-	for ip, c := range l.buckets {
-		if n == 0 || c.seenAt.Before(oldest) {
-			victim, oldest = ip, c.seenAt
-		}
-		if n++; n >= evictSample {
-			break
-		}
+	oldest := l.order.Back()
+	if oldest == nil {
+		return
 	}
-	delete(l.buckets, victim)
+	c := oldest.Value.(*client)
+	l.order.Remove(oldest)
+	delete(l.buckets, c.ip)
 }
 
 // evict drops a client whose bucket has refilled, so its rate is spent again
@@ -177,6 +170,7 @@ func (l *Limiter) evictOne() {
 func (l *Limiter) evict(now time.Time) {
 	for ip, c := range l.buckets {
 		if now.Sub(c.seenAt) > l.ttl {
+			l.order.Remove(c.el)
 			delete(l.buckets, ip)
 		}
 	}
