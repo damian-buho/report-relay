@@ -106,9 +106,7 @@ func decodeIODEF(body []byte, limits guard.Limits, keepQuery bool, keepQueryType
 			if name == "Incident" {
 				current = nil
 			}
-			if n := len(stack); n > 0 {
-				stack = stack[:n-1]
-			}
+			stack = stack[:max(0, len(stack)-1)]
 			depth--
 		case xml.CharData:
 			text.Write(tok)

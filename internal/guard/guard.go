@@ -71,9 +71,6 @@ const evictSample = 8
 // sweepFloor is the shortest gap between idle sweeps: the TTL shrinks with the refill time, so a high-rate low-burst config computes milliseconds, and sweeping that fast would make the scan the bottleneck it was moved off the request path to escape.
 const sweepFloor = time.Second
 
-// maxIdleTTL caps how long an idle bucket is held: the TTL is the time a bucket's debt takes to drain, so reclaiming past it costs the client nothing, but a high-burst config computes minutes and a table of minutes-old buckets leaves a new client to be evicted by sampling.
-const maxIdleTTL = 30 * time.Second
-
 type client struct {
 	lim    *rate.Limiter
 	seenAt time.Time
@@ -83,12 +80,10 @@ type client struct {
 // with burst as the bucket depth. Nonsense in, safety out: a zero burst would
 // refuse the world and a negative rate would admit it, so both are clamped.
 func NewLimiter(rps float64, burst int) *Limiter {
-	if burst < 1 {
-		burst = 1
-	}
-	if rps < 0 {
-		rps = 0
-	}
+	burst = max(burst, 1)
+	rps = max(rps, 0)
+	// maxIdleTTL caps how long an idle bucket is held: the TTL is the time a bucket's debt takes to drain, so reclaiming past it costs the client nothing, but a high-burst config computes minutes and a table of minutes-old buckets leaves a new client to be evicted by sampling.
+	const maxIdleTTL = 30 * time.Second
 	ttl := min(idleTTL(rps, burst), maxIdleTTL)
 	return newLimiter(rps, burst, ttl, max(ttl/2, sweepFloor))
 }
@@ -365,9 +360,7 @@ func checkShape(body []byte, limits Limits) error {
 				}
 				stack = append(stack, frame{object: delim == '{', key: true})
 			case '}', ']':
-				if depth > 0 {
-					depth-- // a close returns the walk to the parent level
-				}
+				depth = max(0, depth-1) // a close returns the walk to the parent level
 				stack = popFrame(stack)
 			}
 			continue

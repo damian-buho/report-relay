@@ -34,9 +34,7 @@ func NewDedup(size int, ttl time.Duration) *Dedup {
 // NewDedupWithClock is NewDedup with an injectable clock, so a test can move
 // time forward without sleeping.
 func NewDedupWithClock(size int, ttl time.Duration, now func() time.Time) *Dedup {
-	if size < 0 {
-		size = 0
-	}
+	size = max(size, 0)
 	if now == nil {
 		now = time.Now
 	}

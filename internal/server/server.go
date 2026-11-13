@@ -88,7 +88,7 @@ func (s *Server) Close() {
 
 func newTypoLimiter(cfg config.Config) *guard.Limiter {
 	rps := cfg.TypoRateLimitRPS
-	if rps <= 0 && cfg.TypoRateLimitPerHour > 0 {
+	if rps <= 0 {
 		rps = float64(cfg.TypoRateLimitPerHour) / 3600.0
 	}
 	burst := cfg.TypoRateLimitBurst

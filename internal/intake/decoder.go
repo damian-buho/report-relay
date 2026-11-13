@@ -79,7 +79,7 @@ func keepRawType(report *Report, raw string) {
 	if report.Type != typeUnknown || strings.EqualFold(raw, typeUnknown) {
 		return
 	}
-	report.Body["reported-type"] = clipUTF8(raw, maxTypeBytes)
+	report.Body["reported-type"] = clipUTF8(raw, maxTypeBytes())
 }
 
 func reportingAPIReport(env reportEnvelope, limits guard.Limits, keepQuery bool, keepQueryTypes []string) (Report, error) {
@@ -267,7 +267,7 @@ func decodeTLSRPT(body []byte, limits guard.Limits, _ bool, _ []string) ([]Repor
 			},
 		}
 		if sanitized == typeUnknown && !strings.EqualFold(resultType, typeUnknown) {
-			report.Body["reported-type"] = clipUTF8(resultType, maxTypeBytes)
+			report.Body["reported-type"] = clipUTF8(resultType, maxTypeBytes())
 		}
 		return report
 	}

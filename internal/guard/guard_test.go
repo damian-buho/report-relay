@@ -294,8 +294,8 @@ func TestLimiterIdleTTLAndSweepAreDerivedFromTheRate(t *testing.T) {
 	}
 	bursty := NewLimiter(0.001, 100000)
 	defer bursty.Close()
-	if bursty.ttl != maxIdleTTL {
-		t.Errorf("ttl = %v, want it capped at %v", bursty.ttl, maxIdleTTL)
+	if bursty.ttl != 30*time.Second {
+		t.Errorf("ttl = %v, want it capped at 30s", bursty.ttl)
 	}
 }
 

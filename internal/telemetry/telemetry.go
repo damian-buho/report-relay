@@ -110,9 +110,7 @@ func NewWithExporters(cfg config.Config, logExp sdklog.Exporter, reader sdkmetri
 		return nil, fmt.Errorf("resource: %w", err)
 	}
 	queueSize := cfg.QueueSize
-	if queueSize < 1 {
-		queueSize = 1
-	}
+	queueSize = max(queueSize, 1)
 	em := &Emitter{
 		metrics: sdkmetric.NewMeterProvider(
 			sdkmetric.WithResource(res),
@@ -207,19 +205,19 @@ func (e *Emitter) registerCounters() error {
 	var err error
 	if e.received, err = declare("report.relay.received",
 		"Reports a decoder accepted from the wire", "{report}"); err != nil {
-		return err
+		return fmt.Errorf("received counter: %w", err)
 	}
 	if e.accepted, err = declare("report.relay.accepted",
 		"Reports queued for OTLP export", "{report}"); err != nil {
-		return err
+		return fmt.Errorf("accepted counter: %w", err)
 	}
 	if e.dropped, err = declare("report.relay.dropped",
 		"Reports dropped, labelled by reason", "{report}"); err != nil {
-		return err
+		return fmt.Errorf("dropped counter: %w", err)
 	}
 	if e.exportFail, err = declare("report.relay.export_failures",
 		"OTLP exports that failed after every retry", "{export}"); err != nil {
-		return err
+		return fmt.Errorf("export_failures counter: %w", err)
 	}
 	return nil
 }

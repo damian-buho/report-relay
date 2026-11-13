@@ -492,8 +492,8 @@ func TestOverlongTypeIsCutOnARuneBoundary(t *testing.T) {
 	if !ok {
 		t.Fatalf("reported-type = %v, want the raw type kept in the body", reports[0].Body["reported-type"])
 	}
-	if len(kept) > maxTypeBytes {
-		t.Errorf("reported-type is %d bytes, want at most %d", len(kept), maxTypeBytes)
+	if len(kept) > maxTypeBytes() {
+		t.Errorf("reported-type is %d bytes, want at most %d", len(kept), maxTypeBytes())
 	}
 	if !utf8.ValidString(kept) {
 		t.Error("reported-type is not valid UTF-8, so a strict collector may refuse the export")
@@ -539,8 +539,8 @@ func TestTLSRPTAggregateKeepsPrefixedResultType(t *testing.T) {
 	if !strings.Contains(kept, marker) {
 		t.Error("the clipped reported-type lost the marker prefix the e2e probe queries Loki for")
 	}
-	if len(kept) > maxTypeBytes {
-		t.Errorf("reported-type is %d bytes, want at most %d", len(kept), maxTypeBytes)
+	if len(kept) > maxTypeBytes() {
+		t.Errorf("reported-type is %d bytes, want at most %d", len(kept), maxTypeBytes())
 	}
 	if !utf8.ValidString(kept) {
 		t.Error("reported-type is not valid UTF-8, so a strict collector may refuse the export")
@@ -604,14 +604,14 @@ func TestLegacyCSPWithoutDocumentURIDropsWithACount(t *testing.T) {
 func TestRedactBodyRecursesIntoNesting(t *testing.T) {
 	body := map[string]any{
 		"nested": map[string]any{"blockedURL": secretURL},
-		"list":   []any{map[string]any{"documentURL": "https://beta.example.com/a?token=secret"}},
+		listKey:  []any{map[string]any{"documentURL": "https://beta.example.com/a?token=secret"}},
 	}
 	redactBody(body, false, testLimits().MaxJSONDepth)
 	nested := body["nested"].(map[string]any)
 	if nested["blockedURL"] != testBlockedURL {
 		t.Errorf("nested blockedURL = %v, want the query dropped", nested["blockedURL"])
 	}
-	list := body["list"].([]any)
+	list := body[listKey].([]any)
 	first := list[0].(map[string]any)
 	if first["documentURL"] != "https://beta.example.com/a" {
 		t.Errorf("listed documentURL = %v, want the query dropped", first["documentURL"])

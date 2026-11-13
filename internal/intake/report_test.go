@@ -21,12 +21,17 @@ func TestRedactURLFallsBackWhenTheValueWillNotParse(t *testing.T) {
 	if got := redactURL(bare); got != bare {
 		t.Errorf("redactURL = %q, want an unparseable value without a query kept whole", got)
 	}
+	queryFirst := "?\x00token=secret"
+	if got := redactURL(queryFirst); got != "" {
+		t.Errorf("redactURL = %q, want the query cut even when it opens the value", got)
+	}
 }
 
 // The nesting fixtures: a body key that wraps the next level, and the two
 // query-bearing URLs the depth caps decide whether the walk ever reaches.
 const (
 	nestedKey  = "nested"
+	listKey    = "list"
 	secretURL  = "https://evil.example/x.js?token=secret"
 	secretPage = "https://beta.example.com/a?token=secret"
 )
@@ -65,15 +70,25 @@ func TestRedactBodyStopsDescendingAtTheDepthCap(t *testing.T) {
 	}
 }
 
+// TestRedactBodyStopsAtAnArrayItemAtTheDepthCap pins the cap on the item an array holds: it is not walked, so the URL it carries keeps its query.
+func TestRedactBodyStopsAtAnArrayItemAtTheDepthCap(t *testing.T) {
+	body := map[string]any{listKey: []any{map[string]any{fieldDocumentURL: secretPage}}}
+	redactBody(body, false, 1)
+	got := body[listKey].([]any)[0].(map[string]any)[fieldDocumentURL].(string)
+	if !strings.Contains(got, "token=secret") {
+		t.Errorf("documentURL = %v, want it untouched past the depth cap", got)
+	}
+}
+
 // TestRedactBodyStopsDescendingIntoAnArrayAtTheDepthCap is the same cap on the
 // array arm: the cap is checked before the first item is walked, and an item
 // counts its own depth from the array it sits in.
 func TestRedactBodyStopsDescendingIntoAnArrayAtTheDepthCap(t *testing.T) {
 	build := func() map[string]any {
-		return map[string]any{"list": []any{nestedBody(1, fieldDocumentURL, secretPage)}}
+		return map[string]any{listKey: []any{nestedBody(1, fieldDocumentURL, secretPage)}}
 	}
 	inner := func(body map[string]any) string {
-		return leafAt(body["list"].([]any)[0].(map[string]any), 1, fieldDocumentURL)
+		return leafAt(body[listKey].([]any)[0].(map[string]any), 1, fieldDocumentURL)
 	}
 	for _, maxDepth := range []int{1, 2} {
 		body := build()

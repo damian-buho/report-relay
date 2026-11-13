@@ -97,13 +97,9 @@ func run() int {
 	select {
 	case <-ctx.Done():
 		log.Info("shutdown signal received, draining", "deadline", cfg.ShutdownTimeout)
-		select {
-		case err := <-errs:
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Error("listener failed", "error", err)
-				exitCode = 1
-			}
-		default:
+		if err := pendingListenerError(errs); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("listener failed", "error", err)
+			exitCode = 1
 		}
 	case err := <-errs:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -115,6 +111,16 @@ func run() int {
 	exitCode = drain(exitCode, intakeSrv, adminSrv, srv, emitter, log, cfg.ShutdownTimeout, cfg.ShutdownTimeout)
 	log.Info("stopped", "exit_code", exitCode)
 	return exitCode
+}
+
+// pendingListenerError returns the error a listener reported, or nil when no listener has failed yet.
+func pendingListenerError(errs <-chan error) error {
+	select {
+	case err := <-errs:
+		return err
+	default:
+		return nil
+	}
 }
 
 // drain shuts each listener down within its own timeout, then the emitter, and returns 1 if any step failed.
@@ -148,9 +154,7 @@ func drainListener(srv *http.Server, name string, timeout time.Duration, log *sl
 		return nil
 	}
 	log.Error(name+" shutdown incomplete", "error", err)
-	if closeErr := srv.Close(); closeErr != nil {
-		err = errors.Join(err, closeErr)
-	}
+	err = errors.Join(err, srv.Close())
 	return err
 }
 
