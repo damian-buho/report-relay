@@ -408,6 +408,12 @@ func TestRunMainPath(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
+	select {
+	case code := <-done:
+		t.Fatalf("run() returned %d before the shutdown signal", code)
+	default:
+	}
+
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGINT); err != nil {
 		t.Fatalf("syscall.Kill: %v", err)
 	}

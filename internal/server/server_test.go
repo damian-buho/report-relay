@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"kiota.ch/damian-buho/report-relay/internal/config"
+	"kiota.ch/damian-buho/report-relay/internal/guard"
 	"kiota.ch/damian-buho/report-relay/internal/intake"
 	"kiota.ch/damian-buho/report-relay/internal/telemetry"
 )
@@ -874,6 +875,14 @@ func TestTimeoutsBoundEveryDeadline(t *testing.T) {
 	if idle != 120*time.Second {
 		t.Errorf("idle timeout = %v, want 120s", idle)
 	}
+}
+
+// TestCloseToleratesAMissingTypoLimiter pins the shutdown path: a server without the typo limiter still releases the one it holds.
+func TestCloseToleratesAMissingTypoLimiter(t *testing.T) {
+	limiter := guard.NewLimiter(1000, 1000)
+	t.Cleanup(limiter.Close)
+	srv := &Server{limiter: limiter}
+	srv.Close()
 }
 
 // TestBadTrustedProxyCIDRsAreLoggedAndTrustNone pins the fallback: an operator

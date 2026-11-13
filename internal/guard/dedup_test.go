@@ -119,6 +119,17 @@ func TestContainsForgetsAKeyPastTheTTL(t *testing.T) {
 	}
 }
 
+// TestContainsAtTheTTLBoundaryIsStillLive pins the TTL boundary: a key exactly at the TTL has not expired yet.
+func TestContainsAtTheTTLBoundaryIsStillLive(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1700000000, 0)}
+	d := NewDedupWithClock(8, time.Minute, clock.Now)
+	d.Seen("k")
+	clock.Advance(time.Minute)
+	if !d.Contains("k") {
+		t.Error("a key at exactly the TTL must still count as live")
+	}
+}
+
 func TestDedupSizeZeroRecordsNothing(t *testing.T) {
 	d := NewDedup(0, time.Minute)
 	for range 3 {

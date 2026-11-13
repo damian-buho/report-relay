@@ -209,7 +209,7 @@ func TestKeepQueryForNamesTheTypesThatKeepTheirQuery(t *testing.T) {
 // the hook owns the URL before the queue ever sees the report.
 func TestTypoHookRefusesAPageURLThatIsNotAResource(t *testing.T) {
 	body := `[{"type":"typo","url":"%s","body":{"selection":"tpyo"}}]`
-	for _, pageURL := range []string{"javascript:alert(1)", "data:text/html,x", "/relative", "https://"} {
+	for _, pageURL := range []string{"javascript:alert(1)", "data:text/html,x", "/relative", "https://", "ftp://example.com/post"} {
 		raw := strings.Replace(body, "%s", pageURL, 1)
 		if _, err := Decode(MediaReportingAPI, []byte(raw), testLimits(), false); !errors.Is(err, ErrBadURL) {
 			t.Fatalf("url %q: err = %v, want ErrBadURL", pageURL, err)

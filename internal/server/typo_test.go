@@ -110,6 +110,21 @@ func TestTypoCommentMaxURLsReadsTheFallbackFields(t *testing.T) {
 	}
 }
 
+// TestTypoCommentWithoutACapKeepsItsURLs pins the cap's own switch: a configuration that names no cap lets the comment carry its links.
+func TestTypoCommentWithoutACapKeepsItsURLs(t *testing.T) {
+	cfg := typoConfig()
+	cfg.TypoCommentMaxURLs = 0
+	srv, sink, sinkEmitter := testServer(t, cfg)
+	body := `[{"type":"typo","url":"https://beta.example.com/post","body":{"selection":"tpyo",` +
+		`"comment":"see https://a.example and https://b.example"}}]`
+	if rec := post(t, srv.IntakeHandler(), intake.MediaReportingAPI, body); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 with the cap off", rec.Code)
+	}
+	if got := len(sink.Records(t, sinkEmitter)); got != 1 {
+		t.Errorf("records = %d, want the report kept", got)
+	}
+}
+
 func TestCountURLsCountsBothSchemes(t *testing.T) {
 	cases := map[string]int{
 		"":                       0,
@@ -146,6 +161,30 @@ func TestTypoDedupKeySeparatesTheTypoLocation(t *testing.T) {
 	}
 }
 
+// TestTypoDedupKeyKeepsAnUnparsableURL pins the key's fallback: a URL net/url refuses must not take the dedup key down with it.
+func TestTypoDedupKeyKeepsAnUnparsableURL(t *testing.T) {
+	key := typoDedupKey(intake.Report{URL: "http://exa\x7fmple.com/post"})
+	if key == "" {
+		t.Error("the key is empty, so every typo would collapse into one")
+	}
+}
+
+// TestTypoDedupFallsBackToItsDefaultTTL pins the cache's own default: a configuration that names no TTL still collapses a repeated typo.
+func TestTypoDedupFallsBackToItsDefaultTTL(t *testing.T) {
+	cfg := typoConfig()
+	cfg.TypoDedupTTL = 0
+	srv, sink, sinkEmitter := testServer(t, cfg)
+	handler := srv.IntakeHandler()
+	for range 2 {
+		if rec := post(t, handler, intake.MediaReportingAPI, typoReport); rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", rec.Code)
+		}
+	}
+	if got := len(sink.Records(t, sinkEmitter)); got != 1 {
+		t.Errorf("records = %d, want the repeat collapsed to one", got)
+	}
+}
+
 // limitsForTests is the guard cap set one typo decoder pass needs.
 func limitsForTests() guard.Limits {
 	return guard.Limits{
@@ -173,17 +212,30 @@ func TestTypoRateLimitTripsOnItsOwnBudget(t *testing.T) {
 	}
 }
 
-// TestTypoLimiterFallsBackToThePerHourRate pins the derived budget: an
-// operator who names a per-hour allowance gets a per-second token bucket.
+// TestTypoLimiterFallsBackToThePerHourRate pins the derived budget: an hourly allowance becomes a per-second bucket that refills at that rate.
 func TestTypoLimiterFallsBackToThePerHourRate(t *testing.T) {
 	cfg := typoConfig()
 	cfg.TypoRateLimitRPS = 0
 	cfg.TypoRateLimitBurst = 1
-	cfg.TypoRateLimitPerHour = 3600
+	cfg.TypoRateLimitPerHour = 36000
 	srv := New(cfg, testLoggerFor(t), nil, nil)
 	t.Cleanup(srv.Close)
-	if srv.typoLimiter == nil {
+	limiter := srv.typoLimiter
+	if limiter == nil {
 		t.Fatal("no typo limiter was built, so the per-hour fallback never ran")
+	}
+	if !limiter.Allow("203.0.113.1") {
+		t.Fatal("the first request must be admitted")
+	}
+	if limiter.Allow("203.0.113.1") {
+		t.Fatal("the second request must wait for the bucket to refill")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !limiter.Allow("203.0.113.1") {
+		if time.Now().After(deadline) {
+			t.Fatal("the bucket never refilled, so the hourly allowance never became a rate")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

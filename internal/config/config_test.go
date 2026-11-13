@@ -206,6 +206,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 		"REPORT_RELAY_MAX_BODY_BYTES", "REPORT_RELAY_MAX_JSON_DEPTH",
 		"REPORT_RELAY_MAX_ARRAY_ITEMS", "REPORT_RELAY_MAX_BODY_KEYS",
 		"REPORT_RELAY_RATE_LIMIT_RPS", "REPORT_RELAY_RATE_LIMIT_BURST",
+		"REPORT_RELAY_TYPO_DEDUP_TTL",
 		"REPORT_RELAY_ALLOWED_ORIGINS", "REPORT_RELAY_KEEP_QUERY",
 		"REPORT_RELAY_TRUST_PROXY", "REPORT_RELAY_TRUSTED_PROXIES",
 		"REPORT_RELAY_EXPORT_TIMEOUT", "REPORT_RELAY_SHUTDOWN_TIMEOUT",
@@ -251,6 +252,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.RateLimitBurst != 40 {
 		t.Errorf("RateLimitBurst = %d, want 40", cfg.RateLimitBurst)
+	}
+	if cfg.TypoDedupTTL != 10*time.Minute {
+		t.Errorf("TypoDedupTTL = %v, want 10m", cfg.TypoDedupTTL)
 	}
 	if cfg.AllowedOrigins != nil {
 		t.Errorf("AllowedOrigins = %v, want nil", cfg.AllowedOrigins)

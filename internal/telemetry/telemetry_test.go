@@ -379,6 +379,30 @@ func TestReleaseSlotsSummarizesOnlyWhenTheQueueEmpties(t *testing.T) {
 	}
 }
 
+// TestReleaseSlotsStaysQuietWhenNothingWasDropped pins the summary's own guard: a queue that drains without a drop must not announce one.
+func TestReleaseSlotsStaysQuietWhenNothingWasDropped(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	cfg := testConfig()
+	cfg.BatchTimeout = time.Hour
+	gate := make(chan struct{})
+	defer close(gate)
+	em, err := NewWithExporters(cfg, &gatedExporter{gate: gate}, sdkmetric.NewManualReader())
+	if err != nil {
+		t.Fatalf("NewWithExporters: %v", err)
+	}
+	defer func() { _ = em.Shutdown(context.Background()) }()
+	em.queued.Add(1)
+
+	em.releaseSlots(1)
+	if out := buf.String(); strings.Contains(out, "queue drained") {
+		t.Errorf("a queue that drained without a drop announced one: %s", out)
+	}
+}
+
 // TestNewRefusesAnInsecureEndpointCarryingTLS pins the exporter constructors'
 // own refusal: an http endpoint beside a CA certificate is a configuration the
 // client cannot honour, so neither pipeline builds and New names the one that
