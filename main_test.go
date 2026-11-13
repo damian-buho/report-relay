@@ -202,8 +202,17 @@ func TestRunRefusesToStartWhenTheExporterCannotBeBuilt(t *testing.T) {
 	}()
 	os.Args = []string{testBin}
 	flag.CommandLine = flag.NewFlagSet(testBin, flag.ContinueOnError)
-	if got := run(); got != 1 {
-		t.Errorf("run() = %d, want 1 when the exporter cannot be built", got)
+	done := make(chan int, 1)
+	go func() {
+		done <- run()
+	}()
+	select {
+	case got := <-done:
+		if got != 1 {
+			t.Errorf("run() = %d, want 1 when the exporter cannot be built", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run() did not return when the exporter could not be built")
 	}
 }
 
