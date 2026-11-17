@@ -1174,7 +1174,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "{service_name=~\"$service\", event_domain=~\"$domain\"} | json type=`attributes[\"report.type\"]`, site=`attributes[\"report.url_host\"]`, url=`attributes[\"report.url\"]` | line_format `{{.event_domain}} · {{.type}} · {{.site}} · {{.url}}`",
+          "expr": "{service_name=~\"$service\", event_domain=~\"$domain\"} | json | line_format `{{.event_domain}} · {{.event_name}} · {{.attributes_report_url_host}} · {{.attributes_report_url}}{{with .attributes_report_effectiveDirective}} · {{.}}{{end}}{{with .attributes_report_blockedURL}} ← {{.}}{{end}}{{with .attributes_report_disposition}} ({{.}}){{end}}`",
           "editorMode": "code",
           "queryType": "range"
         }
