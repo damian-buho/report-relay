@@ -15,7 +15,7 @@ OpenTelemetry relay for the security reports browsers and mail servers send.
 - Builder: `b19/go`; the whole Go application lives in the project directory
 - Final Base: `b19/ubuntu:resolute`
 - Arch: amd64, arm64
-- Binary: `dist/report-relay-linux-{amd64,arm64,riscv64}`, built by `.scripts/build-binaries.sh`, released by m6e’s `gh-release.sh` and the `forgejo-release` action from the signed tag message, and torrented as one bundle
+- Binary: `dist/report-relay-linux-{amd64,arm64,riscv64}`, built by `.scripts/build-binaries.sh` beside `dist/report-relay-grafana-dashboard.json` (a copy of `.grafana/dashboards/report-relay.json`), released by m6e’s `gh-release.sh` and the `forgejo-release` action from the signed tag message, and torrented as one bundle
 - **No upstream version pin** — the source is local, versioned by the projectfile
 - The intake rate limiter tracks at most 10 000 client addresses; an insert past that bound evicts the least-recently-seen client, so a flood of distinct addresses trades its own stale buckets and a persistent offender keeps its spent budget
 - Reports are an OPEN list: a type this build has never seen still arrives, because

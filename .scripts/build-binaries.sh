@@ -25,5 +25,7 @@ log "building report-relay ${version} for ${goos}/${goarch}"
 mkdir -p dist
 go build -ldflags="-s -w -X main.version=${version}"      \
          -o "${out}" .
+log "shipping the Grafana dashboard as dist/report-relay-grafana-dashboard.json"
+cp .grafana/dashboards/report-relay.json dist/report-relay-grafana-dashboard.json
 
 printf '%s\n' "${out}"
